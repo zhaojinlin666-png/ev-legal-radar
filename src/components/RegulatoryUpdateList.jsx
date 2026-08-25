@@ -1,6 +1,6 @@
 import RegulatoryUpdateCard from './RegulatoryUpdateCard.jsx'
 
-function RegulatoryUpdateList({ updates }) {
+function RegulatoryUpdateList({ updates, onSelectUpdate }) {
   if (updates.length === 0) {
     return (
       <div className="empty-state">
@@ -12,7 +12,11 @@ function RegulatoryUpdateList({ updates }) {
   return (
     <div className="update-list">
       {updates.map((update) => (
-        <RegulatoryUpdateCard key={update.id} update={update} />
+        <RegulatoryUpdateCard
+          key={update.id}
+          update={update}
+          onSelect={onSelectUpdate}
+        />
       ))}
     </div>
   )

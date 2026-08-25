@@ -1,6 +1,6 @@
 import RiskBadge from './RiskBadge.jsx'
 
-function RegulatoryUpdateCard({ update }) {
+function RegulatoryUpdateCard({ update, onSelect }) {
   const renderTags = (items, className = '') =>
     items.length > 0 ? (
       items.map((item) => (
@@ -14,6 +14,13 @@ function RegulatoryUpdateCard({ update }) {
 
   return (
     <article className="update-card">
+      <button
+        type="button"
+        className="update-card__click-target"
+        aria-label={`View details for ${update.title}`}
+        onClick={() => onSelect(update)}
+      />
+
       <div className="update-card__accent" aria-hidden="true">
         {update.jurisdiction}
       </div>
