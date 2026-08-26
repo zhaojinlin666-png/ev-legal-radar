@@ -5,6 +5,7 @@ import {
   REGULATORY_IMPACT_LEVELS,
   REGULATORY_IMPACT_SCHEMA_VERSION,
 } from '../../shared/regulatoryImpactContract.js'
+import { getApiEndpoint } from './apiEndpoint.js'
 
 const impactResultSchema = z
   .object({
@@ -105,7 +106,7 @@ export async function requestRegulatoryImpactAnalysis(event) {
   let response
 
   try {
-    response = await fetch('/api/regulatory-impact-analysis', {
+    response = await fetch(getApiEndpoint('regulatory-impact-analysis'), {
       method: 'POST',
       headers: {
         Accept: 'application/json',

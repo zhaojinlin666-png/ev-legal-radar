@@ -1,5 +1,6 @@
 import { createReviewResult } from '../models/reviewResult.js'
 import { AI_REVIEW_SCHEMA_VERSION } from '../../shared/aiReviewContract.js'
+import { getApiEndpoint } from './apiEndpoint.js'
 
 export const AI_REVIEW_CONTRACT = Object.freeze({
   schemaVersion: AI_REVIEW_SCHEMA_VERSION,
@@ -71,7 +72,7 @@ export async function aiAssistedReview({
   reviewRules,
   legalSource,
 }) {
-  const response = await fetch('/api/ai-review', {
+  const response = await fetch(getApiEndpoint('ai-review'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

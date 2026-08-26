@@ -1,3 +1,5 @@
+import { getApiEndpoint } from './apiEndpoint.js'
+
 const FETCH_ERROR_MESSAGE =
   'Regulatory updates could not be retrieved from the official source.'
 
@@ -34,7 +36,7 @@ export async function fetchRegulatoryUpdates() {
   let response
 
   try {
-    response = await fetch('/api/regulatory-updates', {
+    response = await fetch(getApiEndpoint('regulatory-updates'), {
       method: 'GET',
       headers: { Accept: 'application/json' },
     })
