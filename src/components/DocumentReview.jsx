@@ -10,14 +10,21 @@ import { ruleBasedReview } from '../utils/reviewDocument.js'
 import AiReviewRequestPanel from './AiReviewRequestPanel.jsx'
 import DemoDocumentPanel from './DemoDocumentPanel.jsx'
 import DocumentReviewResults from './DocumentReviewResults.jsx'
+import DocumentReviewContext from './DocumentReviewContext.jsx'
 import DocumentUploader from './DocumentUploader.jsx'
 import ReviewModeSelector from './ReviewModeSelector.jsx'
 import ReviewResultTable from './ReviewResultTable.jsx'
 import UploadedDocumentPreview from './UploadedDocumentPreview.jsx'
 import VerificationBadge from './VerificationBadge.jsx'
+import WorkflowProgress from './WorkflowProgress.jsx'
 
-function DocumentReview({ onBack }) {
-  const [activeMode, setActiveMode] = useState('demo')
+function DocumentReview({
+  onBack,
+  reviewContext = null,
+  initialMode = 'demo',
+  backLabel = 'Back to Legal Review Workspace',
+}) {
+  const [activeMode, setActiveMode] = useState(initialMode)
   const [uploadedDocument, setUploadedDocument] = useState(null)
   const [reviewMode, setReviewMode] = useState('rule-based')
   const [aiReviewState, setAiReviewState] = useState({
@@ -96,8 +103,17 @@ function DocumentReview({ onBack }) {
     <article className="document-review" aria-labelledby="document-review-title">
       <button type="button" className="detail-back" onClick={onBack}>
         <span aria-hidden="true">←</span>
-        Back to Legal Review Workspace
+        {backLabel}
       </button>
+
+      <WorkflowProgress
+        currentStage={
+          reviewMode === 'ai-assisted' &&
+          (aiReviewState.isLoading || aiReviewState.results.length > 0)
+            ? 'ai-review'
+            : 'document-review'
+        }
+      />
 
       <header className="document-review-hero">
         <p className="section-kicker">
@@ -186,6 +202,9 @@ function DocumentReview({ onBack }) {
         className="document-review-mode-panel"
         hidden={activeMode !== 'demo'}
       >
+        {reviewContext && activeMode === 'demo' ? (
+          <DocumentReviewContext context={reviewContext} />
+        ) : null}
         <dl
           className="document-review-stats"
           aria-label="Document review summary"
@@ -213,6 +232,9 @@ function DocumentReview({ onBack }) {
           activeMode={reviewMode}
           onModeChange={handleReviewModeChange}
         />
+        {reviewContext && activeMode === 'upload' ? (
+          <DocumentReviewContext context={reviewContext} />
+        ) : null}
         <DocumentUploader onDocumentLoaded={handleDocumentLoaded} />
         <UploadedDocumentPreview document={uploadedDocument} />
         {uploadedDocument && reviewMode === 'rule-based' ? (

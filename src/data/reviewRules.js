@@ -1,4 +1,5 @@
 import { regulatoryUpdates } from './regulatoryUpdates.js'
+import { attachVerifiedLegalAuthorities } from './ruleLegalAuthorityMap.js'
 
 const sourceVerifiedReviewItem = regulatoryUpdates
   .flatMap((update) => update.legalReviewItems)
@@ -8,16 +9,11 @@ const sourceVerifiedReviewItem = regulatoryUpdates
 
 const verifiedLegalSource = sourceVerifiedReviewItem.legalSource
 export const reviewLegalSource = Object.freeze({ ...verifiedLegalSource })
-const sharedRuleMetadata = {
-  legalBasis: `《${verifiedLegalSource.title}》`,
-  legalArticle: verifiedLegalSource.article,
-  legalSourceUrl: verifiedLegalSource.officialSource,
-  riskLevel: sourceVerifiedReviewItem.priority,
-}
 
-export const reviewRules = [
+const ruleDefinitions = [
   {
     id: 'information-categories',
+    issueType: 'personal-information',
     title: '个人信息 / 汽车数据种类',
     description: '初步核查文本是否说明处理的个人信息或汽车数据种类。',
     keywords: {
@@ -46,10 +42,11 @@ export const reviewRules = [
         '驾驶记录',
       ],
     },
-    ...sharedRuleMetadata,
+    riskLevel: sourceVerifiedReviewItem.priority,
   },
   {
     id: 'processing-purpose',
+    issueType: 'processing-purpose',
     title: '处理目的',
     description: '初步核查文本是否说明个人信息或汽车数据的处理目的。',
     keywords: {
@@ -75,10 +72,11 @@ export const reviewRules = [
         '故障排查',
       ],
     },
-    ...sharedRuleMetadata,
+    riskLevel: sourceVerifiedReviewItem.priority,
   },
   {
     id: 'processing-method',
+    issueType: 'processing-method',
     title: '处理方式',
     description: '初步核查文本是否说明个人信息或汽车数据的处理方式。',
     keywords: {
@@ -105,10 +103,11 @@ export const reviewRules = [
         '提供',
       ],
     },
-    ...sharedRuleMetadata,
+    riskLevel: sourceVerifiedReviewItem.priority,
   },
   {
     id: 'collection-scenarios',
+    issueType: 'collection-scenarios',
     title: '收集或处理的具体场景',
     description: '初步核查文本是否说明收集或处理数据的具体场景。',
     keywords: {
@@ -134,10 +133,11 @@ export const reviewRules = [
         '功能',
       ],
     },
-    ...sharedRuleMetadata,
+    riskLevel: sourceVerifiedReviewItem.priority,
   },
   {
     id: 'storage-location',
+    issueType: 'data-storage-location',
     title: '保存地点',
     description: '初步核查文本是否说明个人信息或汽车数据的保存地点。',
     keywords: {
@@ -160,10 +160,11 @@ export const reviewRules = [
         '境内',
       ],
     },
-    ...sharedRuleMetadata,
+    riskLevel: sourceVerifiedReviewItem.priority,
   },
   {
     id: 'retention-period',
+    issueType: 'data-retention',
     title: '保存期限',
     description: '初步核查文本是否说明个人信息或汽车数据的保存期限或确定规则。',
     keywords: {
@@ -188,10 +189,11 @@ export const reviewRules = [
         '期限',
       ],
     },
-    ...sharedRuleMetadata,
+    riskLevel: sourceVerifiedReviewItem.priority,
   },
   {
     id: 'user-rights',
+    issueType: 'user-rights',
     title: '用户查阅、复制、更正、删除等权利',
     description: '初步核查文本是否说明用户可行使的个人信息权利。',
     keywords: {
@@ -218,10 +220,11 @@ export const reviewRules = [
         '权利',
       ],
     },
-    ...sharedRuleMetadata,
+    riskLevel: sourceVerifiedReviewItem.priority,
   },
   {
     id: 'rights-channel',
+    issueType: 'rights-channel',
     title: '权利行使方式或联系渠道',
     description: '初步核查文本是否说明用户行使权利的方式或联系渠道。',
     keywords: {
@@ -252,6 +255,10 @@ export const reviewRules = [
         '入口',
       ],
     },
-    ...sharedRuleMetadata,
+    riskLevel: sourceVerifiedReviewItem.priority,
   },
 ]
+
+export const reviewRules = ruleDefinitions.map((rule) =>
+  attachVerifiedLegalAuthorities(rule),
+)

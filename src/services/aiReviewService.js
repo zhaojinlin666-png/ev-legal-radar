@@ -1,26 +1,70 @@
 import { createReviewResult } from '../models/reviewResult.js'
-
-const STATUS_BY_API_RESULT = Object.freeze({
-  found: 'Found',
-  potential_gap: 'Potential Gap',
-  further_review_required: 'Further Review Required',
-})
+import { AI_REVIEW_SCHEMA_VERSION } from '../../shared/aiReviewContract.js'
 
 export const AI_REVIEW_CONTRACT = Object.freeze({
+  schemaVersion: AI_REVIEW_SCHEMA_VERSION,
   analysisMethod: 'AI-assisted preliminary review',
   allowedStatuses: [
     'Found',
     'Potential Gap',
     'Further Review Required',
   ],
+  evidenceFoundFlagRequired: true,
   evidenceMustComeFromUploadedText: true,
+  evidenceMustBeContiguousVerbatim: true,
   evidenceAbsenceMustBeExplicit: true,
   confidenceRequired: true,
   humanReviewFlagRequired: true,
   verifiedLegalSourceRequired: true,
+  issueSpecificLegalEvidenceRequired: true,
+  legalAuthorityResolvedByServer: true,
+  regulationLevelCitationFallbackAllowed: false,
   generatedLegalSourcesAllowed: false,
   directComplianceConclusionsAllowed: false,
+  practicalFindingFieldsRequired: true,
 })
+
+function isLegacyApiResult(result) {
+  return (
+    result &&
+    typeof result === 'object' &&
+    ('result' in result ||
+      'issue' in result ||
+      'preliminaryObservation' in result ||
+      'reviewPriority' in result)
+  )
+}
+
+export function parseAiReviewApiResponse(payload) {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('AI review response was not a valid object.')
+  }
+
+  if (payload.schemaVersion !== AI_REVIEW_SCHEMA_VERSION) {
+    const hasLegacyResults =
+      Array.isArray(payload.results) && payload.results.some(isLegacyApiResult)
+
+    throw new Error(
+      hasLegacyResults
+        ? 'AI review backend is using an outdated response schema. Restart the local backend and run the review again.'
+        : `AI review response schema version is not supported. Expected ${AI_REVIEW_SCHEMA_VERSION}.`,
+    )
+  }
+
+  if (!Array.isArray(payload.results)) {
+    throw new Error('AI review response did not contain review results.')
+  }
+
+  return payload.results.map((result, index) => {
+    try {
+      return createReviewResult(result)
+    } catch (error) {
+      throw new Error(
+        `AI review result ${index + 1} did not match the expected schema: ${error.message}`,
+      )
+    }
+  })
+}
 
 export async function aiAssistedReview({
   documentText,
@@ -47,23 +91,5 @@ export async function aiAssistedReview({
     throw error
   }
 
-  if (!Array.isArray(payload.results)) {
-    throw new Error('AI review response did not contain review results.')
-  }
-
-  return payload.results.map((result) =>
-    createReviewResult({
-      ruleId: result.ruleId,
-      title: result.issue,
-      status: STATUS_BY_API_RESULT[result.result],
-      evidence: result.evidence,
-      observation: result.preliminaryObservation,
-      legalBasis: result.legalBasis,
-      legalArticle: result.legalArticle,
-      riskLevel: result.reviewPriority,
-      analysisMethod: result.analysisMethod,
-      confidence: result.confidence,
-      requiresHumanReview: result.requiresHumanReview,
-    }),
-  )
+  return parseAiReviewApiResponse(payload)
 }

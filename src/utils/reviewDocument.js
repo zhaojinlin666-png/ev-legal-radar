@@ -96,6 +96,25 @@ function createObservation(status, rule) {
   return `当前文本中未识别到与“${rule.title}”相关的足够明确表述。可能需要进一步核查其他文件或完整业务场景，并建议人工复核。`
 }
 
+function createPracticalReviewFields(status, rule) {
+  const issueSummary =
+    status === 'Found'
+      ? `当前文本中识别到与“${rule.title}”相关的表述，其完整性仍待人工复核。`
+      : status === 'Further Review Required'
+        ? `当前文本中可能存在与“${rule.title}”相关的表述，但仅凭规则匹配无法可靠判断。`
+        : `当前文本中未识别到与“${rule.title}”相关的足够明确表述。`
+
+  return {
+    issueSummary,
+    riskReason:
+      '规则驱动的文本匹配仅反映当前上传文本的表述情况，可能需要结合完整文件和实际业务场景进一步确认。',
+    suggestedRevision:
+      '建议在人工核查相关事实后，再根据实际情况判断是否需要完善相关文本表述。',
+    suggestedNextStep:
+      '建议由法律专业人员结合完整文本和实际业务场景进一步复核。',
+  }
+}
+
 export function ruleBasedReview(text, rules) {
   const normalizedText = normalizeText(text)
   const segments = createTextSegments(text)
@@ -103,6 +122,10 @@ export function ruleBasedReview(text, rules) {
   return rules.map((rule) => {
     const classification = classifyResult(normalizedText, rule)
     const matchedEvidence = findBestEvidence(segments, rule)
+    const practicalReviewFields = createPracticalReviewFields(
+      classification.status,
+      rule,
+    )
 
     return createReviewResult({
       ruleId: rule.id,
@@ -115,10 +138,13 @@ export function ruleBasedReview(text, rules) {
       observation: createObservation(classification.status, rule),
       legalBasis: rule.legalBasis,
       legalArticle: rule.legalArticle,
+      legalAuthorityStatus: rule.legalAuthorityStatus,
+      legalAuthorities: rule.legalAuthorities,
       riskLevel: rule.riskLevel,
       analysisMethod: ANALYSIS_METHOD,
       confidence: classification.confidence,
       requiresHumanReview: classification.requiresHumanReview,
+      ...practicalReviewFields,
     })
   })
 }
