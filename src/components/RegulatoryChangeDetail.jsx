@@ -1,10 +1,16 @@
 import ImpactAssessmentSummary from './ImpactAssessmentSummary.jsx'
+import HumanReviewControls from './HumanReviewControls.jsx'
+import HumanReviewSummary from './HumanReviewSummary.jsx'
+import ImpactFactors from './ImpactFactors.jsx'
+import LegalBasisDisclosure from './LegalBasisDisclosure.jsx'
 import LegalAuthorityPanel from './LegalAuthorityPanel.jsx'
 import PreliminaryImpactAnalysisPanel from './PreliminaryImpactAnalysisPanel.jsx'
 import RegulatoryStatusBadge from './RegulatoryStatusBadge.jsx'
 import ReviewTaskList from './ReviewTaskList.jsx'
 import RiskBadge from './RiskBadge.jsx'
 import WorkflowProgress from './WorkflowProgress.jsx'
+import { getRegulatoryImpactReviewKeys } from '../utils/humanReview.js'
+import { getRegulatoryChangePresentation } from '../utils/regulatoryChangePresentation.js'
 
 function TagList({ items, emptyMessage }) {
   if (items.length === 0) {
@@ -39,9 +45,16 @@ function RegulatoryChangeDetail({
   onToggleQuestion,
   onReviewDocument,
   onRunPreliminaryImpactAnalysis,
+  humanReviewRecords = {},
+  onHumanReviewChange,
 }) {
   const impactAnalysis = event.impactAnalysis
   const hasImpactAnalysis = Boolean(impactAnalysis)
+  const changePresentation = getRegulatoryChangePresentation(
+    event.changeSummary,
+  )
+  const { hasVerifiedComparison } = changePresentation
+  const humanReviewKeys = getRegulatoryImpactReviewKeys(event)
 
   return (
     <article className="change-event-detail" aria-labelledby="change-detail-title">
@@ -85,53 +98,96 @@ function RegulatoryChangeDetail({
 
       <ImpactAssessmentSummary event={event} />
 
+      {hasImpactAnalysis ? (
+        <HumanReviewSummary
+          reviewKeys={humanReviewKeys}
+          records={humanReviewRecords}
+        />
+      ) : null}
+
       <section className="detail-section" aria-labelledby="what-changed-title">
         <div className="detail-section__heading">
-          <p className="section-kicker">Change comparison</p>
-          <h2 id="what-changed-title">What Changed / 发生了什么变化</h2>
+          <p className="section-kicker">
+            {hasVerifiedComparison ? 'Verified change comparison' : 'New source summary'}
+          </p>
+          <h2 id="what-changed-title">
+            {changePresentation.title}
+          </h2>
         </div>
+        {!hasVerifiedComparison ? (
+          <p className="change-version-notice">
+            {changePresentation.notice}
+          </p>
+        ) : null}
         <div className="change-comparison-grid">
+          {hasVerifiedComparison ? (
+            <div>
+              <h3>Previous Requirement <GroundingLabel type="FACT" /></h3>
+              <p>{event.changeSummary.previousRequirement}</p>
+            </div>
+          ) : null}
           <div>
             <h3>
-              Before / Previous Understanding
-            </h3>
-            {hasImpactAnalysis ? (
-              <>
-                <p className="detail-empty">
-                  No verified previous-state comparison was supplied.
-                </p>
-                <div className="source-backed-change">
-                  <GroundingLabel type="FACT" />
-                  <strong>Source-backed change</strong>
-                  <p>{event.changeSummary.sourceBackedChange}</p>
-                </div>
-              </>
-            ) : (
-              <p className="detail-empty">
-                {event.changeSummary.previousUnderstanding ||
-                  'No change comparison has been prepared.'}
-              </p>
-            )}
-          </div>
-          <div>
-            <h3>
-              After / New Requirement
+              {hasVerifiedComparison ? 'New Requirement' : 'Source-backed New Requirement'}
               {hasImpactAnalysis ? <GroundingLabel type="FACT" /> : null}
             </h3>
-            <p className={event.changeSummary.newRequirement ? '' : 'detail-empty'}>
-              {event.changeSummary.newRequirement ||
-                'The detected source has not yet been legally reviewed.'}
-            </p>
+            {hasImpactAnalysis ? (
+              <HumanReviewControls
+                reviewKey="change:new-requirement"
+                originalText={event.changeSummary.newRequirement}
+                record={humanReviewRecords['change:new-requirement']}
+                onChange={onHumanReviewChange}
+              />
+            ) : (
+              <p className={event.changeSummary.newRequirement ? '' : 'detail-empty'}>
+                {event.changeSummary.newRequirement ||
+                  'The detected source has not yet been legally reviewed.'}
+              </p>
+            )}
+            {hasImpactAnalysis ? (
+              <LegalBasisDisclosure legalBasis={event.changeSummary.legalBasis} />
+            ) : null}
           </div>
           <div>
             <h3>
-              Why It Matters
+              Preliminary Interpretation
               {hasImpactAnalysis ? <GroundingLabel type="INFERENCE" /> : null}
             </h3>
-            <p className={event.changeSummary.whyItMatters ? '' : 'detail-empty'}>
-              {event.changeSummary.whyItMatters ||
-                'Preliminary legal impact has not been assessed.'}
-            </p>
+            {hasImpactAnalysis ? (
+              <HumanReviewControls
+                reviewKey="change:preliminary-interpretation"
+                originalText={event.changeSummary.preliminaryInterpretation}
+                record={humanReviewRecords['change:preliminary-interpretation']}
+                onChange={onHumanReviewChange}
+              />
+            ) : (
+              <p className={event.changeSummary.preliminaryInterpretation ? '' : 'detail-empty'}>
+                {event.changeSummary.preliminaryInterpretation ||
+                  'Preliminary interpretation has not been prepared.'}
+              </p>
+            )}
+            {hasImpactAnalysis ? (
+              <LegalBasisDisclosure legalBasis={event.changeSummary.legalBasis} />
+            ) : null}
+          </div>
+          <div>
+            <h3>Why It May Matter <GroundingLabel type="INFERENCE" /></h3>
+            {hasImpactAnalysis ? (
+              <HumanReviewControls
+                reviewKey="change:why-it-matters"
+                originalText={event.changeSummary.whyItMatters}
+                record={humanReviewRecords['change:why-it-matters']}
+                onChange={onHumanReviewChange}
+              />
+            ) : (
+              <p className={event.changeSummary.whyItMatters ? '' : 'detail-empty'}>
+                {event.changeSummary.whyItMatters ||
+                  'Preliminary legal impact has not been assessed.'}
+              </p>
+            )}
+            {hasImpactAnalysis ? (
+              <LegalBasisDisclosure legalBasis={event.changeSummary.legalBasis} />
+            ) : null}
           </div>
         </div>
       </section>
@@ -148,15 +204,23 @@ function RegulatoryChangeDetail({
         </div>
         {event.affectedActivityDetails?.length > 0 ? (
           <div className="impact-detail-grid">
-            {event.affectedActivityDetails.map((item) => (
-              <article key={item.activity}>
+            {event.affectedActivityDetails.map((item, index) => {
+              const reviewKey = `affected-activity:${index}`
+
+              return <article key={`${item.activity}-${index}`}>
                 <div>
                   <GroundingLabel type="INFERENCE" />
                   <h3>{item.activity}</h3>
                 </div>
-                <p>{item.reason}</p>
+                <HumanReviewControls
+                  reviewKey={reviewKey}
+                  originalText={item.reason}
+                  record={humanReviewRecords[reviewKey]}
+                  onChange={onHumanReviewChange}
+                />
+                <LegalBasisDisclosure legalBasis={item.legalBasis} />
               </article>
-            ))}
+            })}
           </div>
         ) : (
           <TagList
@@ -178,8 +242,10 @@ function RegulatoryChangeDetail({
         </div>
         {event.documentReviewDetails?.length > 0 ? (
           <ul className="radar-document-list">
-            {event.documentReviewDetails.map((document) => (
-              <li key={document.documentName}>
+            {event.documentReviewDetails.map((document, index) => {
+              const reviewKey = `suggested-document:${index}`
+
+              return <li key={`${document.documentName}-${index}`}>
                 <span aria-hidden="true" />
                 <div>
                   <strong>
@@ -187,10 +253,16 @@ function RegulatoryChangeDetail({
                     review
                   </strong>
                   <p>{document.documentName}</p>
-                  <small>{document.reason}</small>
+                  <HumanReviewControls
+                    reviewKey={reviewKey}
+                    originalText={document.reason}
+                    record={humanReviewRecords[reviewKey]}
+                    onChange={onHumanReviewChange}
+                  />
+                  <LegalBasisDisclosure legalBasis={document.legalBasis} />
                 </div>
               </li>
-            ))}
+            })}
           </ul>
         ) : event.documentsToReview.length > 0 ? (
           <ul className="radar-document-list">
@@ -226,12 +298,20 @@ function RegulatoryChangeDetail({
             <RiskBadge level={event.preliminaryImpactLevel} label="priority" />
             <div className="preliminary-impact-note__analysis">
               <GroundingLabel type="INFERENCE" />
-              <p>{impactAnalysis.preliminaryImpact.reasoning}</p>
+              <HumanReviewControls
+                reviewKey="impact:rationale"
+                originalText={impactAnalysis.impactAssessment.rationale}
+                record={humanReviewRecords['impact:rationale']}
+                onChange={onHumanReviewChange}
+              />
+              <LegalBasisDisclosure
+                legalBasis={impactAnalysis.impactAssessment.legalBasis}
+              />
             </div>
             <dl className="preliminary-impact-metadata">
               <div>
                 <dt>Confidence</dt>
-                <dd>{impactAnalysis.preliminaryImpact.confidence}</dd>
+                <dd>{impactAnalysis.impactAssessment.confidence}</dd>
               </div>
               <div>
                 <dt>Analysis method</dt>
@@ -241,6 +321,12 @@ function RegulatoryChangeDetail({
             <strong className="human-review-required">
               HUMAN REVIEW REQUIRED
             </strong>
+
+            <ImpactFactors
+              assessment={impactAnalysis.impactAssessment}
+              reviewRecords={humanReviewRecords}
+              onHumanReviewChange={onHumanReviewChange}
+            />
 
             <section className="source-evidence-panel" aria-labelledby="source-evidence-title">
               <div>
@@ -314,6 +400,8 @@ function RegulatoryChangeDetail({
           onStatusChange={onStatusChange}
           onToggleQuestion={onToggleQuestion}
           onReviewDocument={onReviewDocument}
+          reviewRecords={humanReviewRecords}
+          onHumanReviewChange={onHumanReviewChange}
         />
       </section>
 

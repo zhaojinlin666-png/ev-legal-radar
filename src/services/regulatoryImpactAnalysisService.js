@@ -1,11 +1,25 @@
 import { z } from 'zod'
 import {
   REGULATORY_IMPACT_ANALYSIS_METHOD,
+  REGULATORY_CHANGE_COMPARISON_MODES,
   REGULATORY_IMPACT_CONFIDENCE_LEVELS,
+  REGULATORY_IMPACT_EVIDENCE_TYPES,
   REGULATORY_IMPACT_LEVELS,
   REGULATORY_IMPACT_SCHEMA_VERSION,
 } from '../../shared/regulatoryImpactContract.js'
 import { getApiEndpoint } from './apiEndpoint.js'
+
+const legalBasisSchema = z
+  .object({
+    sourceTitle: z.string(),
+    provision: z.string(),
+    excerpt: z.string(),
+    excerptType: z.literal('verified requirement summary'),
+    sourceUrl: z.string().url(),
+    sourceAuthority: z.string(),
+    verificationStatus: z.literal('verified'),
+  })
+  .strict()
 
 const impactResultSchema = z
   .object({
@@ -16,22 +30,37 @@ const impactResultSchema = z
       }),
     ),
     changeSummary: z.object({
-      whatChanged: z.string(),
+      comparisonMode: z.enum(REGULATORY_CHANGE_COMPARISON_MODES),
+      previousRequirement: z.string().nullable(),
       newRequirement: z.string(),
+      preliminaryInterpretation: z.string(),
       whyItMatters: z.string(),
       evidenceIds: z.array(z.string()),
+      legalBasis: z.array(legalBasisSchema),
     }),
-    preliminaryImpact: z.object({
-      impactLevel: z.enum(REGULATORY_IMPACT_LEVELS),
-      reasoning: z.string(),
+    impactAssessment: z.object({
+      level: z.enum(REGULATORY_IMPACT_LEVELS),
+      rationale: z.string(),
       confidence: z.enum(REGULATORY_IMPACT_CONFIDENCE_LEVELS),
       evidenceIds: z.array(z.string()),
+      legalBasis: z.array(legalBasisSchema),
+      humanReviewRequired: z.literal(true),
+      factors: z.array(
+        z.object({
+          factor: z.string(),
+          assessment: z.string(),
+          evidenceType: z.enum(REGULATORY_IMPACT_EVIDENCE_TYPES),
+          evidenceIds: z.array(z.string()),
+          legalBasis: z.array(legalBasisSchema),
+        }),
+      ),
     }),
     affectedActivities: z.array(
       z.object({
         activity: z.string(),
         reason: z.string(),
         evidenceIds: z.array(z.string()),
+        legalBasis: z.array(legalBasisSchema),
       }),
     ),
     suggestedDocuments: z.array(
@@ -39,6 +68,7 @@ const impactResultSchema = z
         documentName: z.string(),
         reason: z.string(),
         evidenceIds: z.array(z.string()),
+        legalBasis: z.array(legalBasisSchema),
       }),
     ),
     reviewTasks: z.array(
@@ -49,6 +79,7 @@ const impactResultSchema = z
         suggestedDocument: z.string(),
         priority: z.enum(['High', 'Medium', 'Low']),
         evidenceIds: z.array(z.string()),
+        legalBasis: z.array(legalBasisSchema),
       }),
     ),
     legalAuthorityStatus: z.enum([

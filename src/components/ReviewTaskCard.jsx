@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import HumanReviewControls from './HumanReviewControls.jsx'
+import LegalBasisDisclosure from './LegalBasisDisclosure.jsx'
 import PriorityBadge from './PriorityBadge.jsx'
 import { REVIEW_TASK_STATUSES } from '../data/regulatoryChangeEvents.js'
 
@@ -10,6 +12,8 @@ function ReviewTaskCard({
   onStatusChange,
   onToggleQuestion,
   onReviewDocument,
+  humanReviewRecord,
+  onHumanReviewChange,
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const status = progress?.status || task.status
@@ -56,7 +60,19 @@ function ReviewTaskCard({
         <p>{task.reasonForReview}</p>
       </div>
 
-      <p className="review-task-card__description">{task.description}</p>
+      {task.legalBasis ? (
+        <div className="review-task-card__governance">
+          <HumanReviewControls
+            reviewKey={`review-task:${task.id}`}
+            originalText={task.description}
+            record={humanReviewRecord}
+            onChange={onHumanReviewChange}
+          />
+          <LegalBasisDisclosure legalBasis={task.legalBasis} />
+        </div>
+      ) : (
+        <p className="review-task-card__description">{task.description}</p>
+      )}
 
       <details
         className="review-task-card__details"

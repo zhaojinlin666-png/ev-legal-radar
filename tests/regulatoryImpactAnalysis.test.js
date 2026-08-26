@@ -51,22 +51,52 @@ function createModelOutput(overrides = {}) {
       },
     ],
     changeSummary: {
-      whatChanged: '官方来源材料说明相关文件正在公开征求意见。',
+      comparisonMode: 'new_source_summary',
+      previousRequirement: null,
       newRequirement: '当前材料涉及个人信息处理规则。',
+      preliminaryInterpretation:
+        '现有来源初步表明该事项可能需要进一步法律研究。',
       whyItMatters: '可能需要进一步识别受影响的数据处理活动。',
       evidenceIds: ['source-1'],
+      legalAuthorityIds: [],
     },
-    preliminaryImpact: {
-      impactLevel: 'Medium',
-      reasoning: '基于当前来源，建议对相关数据处理活动进行初步梳理。',
+    impactAssessment: {
+      level: 'Medium',
+      rationale: '基于当前来源，建议对相关数据处理活动进行初步梳理。',
       confidence: 'Medium',
       evidenceIds: ['source-1'],
+      legalAuthorityIds: [],
+      humanReviewRequired: true,
+      factors: [
+        {
+          factor: '来源范围',
+          assessment: '官方来源提及个人信息处理规则。',
+          evidenceType: 'FACT',
+          evidenceIds: ['source-1'],
+          legalAuthorityIds: [],
+        },
+        {
+          factor: '潜在活动范围',
+          assessment: '该事项可能与多类个人信息处理活动相关。',
+          evidenceType: 'INFERENCE',
+          evidenceIds: ['source-1'],
+          legalAuthorityIds: [],
+        },
+        {
+          factor: '人工核查需求',
+          assessment: '具体影响可能需要法律人员结合业务事实进一步核查。',
+          evidenceType: 'INFERENCE',
+          evidenceIds: ['source-1'],
+          legalAuthorityIds: [],
+        },
+      ],
     },
     affectedActivities: [
       {
         activity: '个人信息处理活动',
         reason: '来源材料涉及个人信息处理规则，具体影响仍需人工判断。',
         evidenceIds: ['source-1'],
+        legalAuthorityIds: [],
       },
     ],
     suggestedDocuments: [
@@ -74,6 +104,7 @@ function createModelOutput(overrides = {}) {
         documentName: '个人信息处理说明材料',
         reason: '可用于核对当前处理活动与来源材料的关系。',
         evidenceIds: ['source-1'],
+        legalAuthorityIds: [],
       },
     ],
     reviewTasks: [
@@ -84,9 +115,9 @@ function createModelOutput(overrides = {}) {
         suggestedDocument: '个人信息处理说明材料',
         priority: 'Medium',
         evidenceIds: ['source-1'],
+        legalAuthorityIds: [],
       },
     ],
-    legalAuthorityIds: [],
     ...overrides,
   }
 }
@@ -141,6 +172,113 @@ test('structured impact output is validated and missing authority is explicit', 
   assert.equal(
     result.analysisMethod,
     'AI-assisted preliminary impact analysis',
+  )
+  assert.equal(result.impactAssessment.factors.length, 3)
+  assert.equal(result.impactAssessment.humanReviewRequired, true)
+})
+
+test('verified legal basis is resolved server-side with official provenance', () => {
+  const authorities = getVerifiedProvisionsForOfficialSource({
+    title: '汽车数据安全管理若干规定（试行）',
+    sourceUrl:
+      'https://www.cac.gov.cn/2021-08/20/c_1631049984897667.htm',
+  })
+  const authority = authorities.find((item) => item.article === 'Article 7')
+  const modelOutput = createModelOutput({
+    changeSummary: {
+      ...createModelOutput().changeSummary,
+      legalAuthorityIds: [authority.provisionId],
+    },
+  })
+  const result = validateAndNormalizeRegulatoryImpact({
+    modelOutput,
+    officialSourceMaterial: `${officialSource.title}\n${officialSource.content}`,
+    allowedAuthorities: [authority],
+  })
+
+  assert.deepEqual(result.changeSummary.legalBasis, [
+    {
+      sourceTitle: authority.lawName,
+      provision: authority.article,
+      excerpt: authority.requirementSummary,
+      excerptType: 'verified requirement summary',
+      sourceUrl: authority.sourceUrl,
+      sourceAuthority: authority.sourceAuthority,
+      verificationStatus: 'verified',
+    },
+  ])
+  assert.equal(result.changeSummary.legalBasis[0].sourceUrl, authority.sourceUrl)
+})
+
+test('fabricated article cannot enter the API legal-basis response', () => {
+  const result = createNormalizedResult()
+  const fabricatedResult = {
+    ...result,
+    changeSummary: {
+      ...result.changeSummary,
+      legalBasis: [
+        {
+          sourceTitle: 'Invented regulation',
+          provision: 'Article 999',
+          excerpt: 'Invented text',
+          excerptType: 'verified requirement summary',
+          sourceUrl: 'https://example.com/invented',
+          sourceAuthority: 'Invented authority',
+          verificationStatus: 'verified',
+        },
+      ],
+    },
+  }
+
+  assert.throws(
+    () => createRegulatoryImpactApiResponse(fabricatedResult),
+    (error) => error.validationCode === 'LEGAL_BASIS_PROVENANCE_INVALID',
+  )
+})
+
+test('a verified comparison requires an explicitly verified previous version', () => {
+  const comparisonOutput = createModelOutput({
+    changeSummary: {
+      ...createModelOutput().changeSummary,
+      comparisonMode: 'verified_change_comparison',
+      previousRequirement: '已核验旧版本中的要求。',
+    },
+  })
+
+  assert.throws(
+    () =>
+      validateAndNormalizeRegulatoryImpact({
+        modelOutput: comparisonOutput,
+        officialSourceMaterial: `${officialSource.title}\n${officialSource.content}`,
+        allowedAuthorities: [],
+      }),
+    (error) =>
+      error.validationCode === 'UNVERIFIED_PREVIOUS_VERSION_COMPARISON',
+  )
+
+  const result = validateAndNormalizeRegulatoryImpact({
+    modelOutput: comparisonOutput,
+    officialSourceMaterial: `${officialSource.title}\n${officialSource.content}`,
+    allowedAuthorities: [],
+    hasVerifiedPreviousVersion: true,
+  })
+  assert.equal(
+    result.changeSummary.comparisonMode,
+    'verified_change_comparison',
+  )
+})
+
+test('impact rationale is mandatory in the strict model schema', () => {
+  const modelOutput = createModelOutput()
+  const { rationale: _rationale, ...impactWithoutRationale } =
+    modelOutput.impactAssessment
+
+  assert.throws(
+    () =>
+      createNormalizedResult({
+        impactAssessment: impactWithoutRationale,
+      }),
+    (error) => error.validationCode === 'MODEL_SCHEMA_MISMATCH',
   )
 })
 
@@ -203,6 +341,7 @@ test('every impact claim must reference grounded official-source evidence', () =
             activity: '个人信息处理活动',
             reason: '建议进一步核查。',
             evidenceIds: ['unknown-source'],
+            legalAuthorityIds: [],
           },
         ],
       }),
@@ -218,7 +357,13 @@ test('every impact claim must reference grounded official-source evidence', () =
 
 test('unsupported or fabricated legal authority is rejected', () => {
   assert.throws(
-    () => createNormalizedResult({ legalAuthorityIds: ['invented-article'] }),
+    () =>
+      createNormalizedResult({
+        changeSummary: {
+          ...createModelOutput().changeSummary,
+          legalAuthorityIds: ['invented-article'],
+        },
+      }),
     (error) => {
       assert.equal(error.validationCode, 'UNSUPPORTED_LEGAL_AUTHORITY')
       return true
@@ -313,7 +458,10 @@ test('structured analysis retries once after unsupported authority output', asyn
           output_parsed:
             attempt === 1
               ? createModelOutput({
-                  legalAuthorityIds: ['invented-article'],
+                  changeSummary: {
+                    ...createModelOutput().changeSummary,
+                    legalAuthorityIds: ['invented-article'],
+                  },
                 })
               : createModelOutput(),
         }
@@ -366,11 +514,10 @@ test('impact request uses strict JSON Schema structured output', async () => {
   assert.deepEqual(structuredRequest.text.format.schema.required, [
     'sourceEvidence',
     'changeSummary',
-    'preliminaryImpact',
+    'impactAssessment',
     'affectedActivities',
     'suggestedDocuments',
     'reviewTasks',
-    'legalAuthorityIds',
   ])
   assert.equal(requestOptions.signal, abortController.signal)
   assert.equal(requestOptions.maxRetries, 0)
@@ -509,12 +656,16 @@ test('prohibited-conclusion repair cannot add an unapproved legal citation', asy
     createModelOutput(),
     '该公司违反法律并且不合规。',
   )
+  const cautiousOutput = withWhyItMatters(
+    prohibitedOutput,
+    '该事项可能需要进一步审查，建议法律人员核实相关事实。',
+  )
   const repairedOutput = {
-    ...withWhyItMatters(
-      prohibitedOutput,
-      '该事项可能需要进一步审查，建议法律人员核实相关事实。',
-    ),
-    legalAuthorityIds: ['invented-article'],
+    ...cautiousOutput,
+    changeSummary: {
+      ...cautiousOutput.changeSummary,
+      legalAuthorityIds: ['invented-article'],
+    },
   }
   const openai = {
     responses: {

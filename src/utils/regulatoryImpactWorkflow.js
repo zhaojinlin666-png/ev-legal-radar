@@ -53,6 +53,7 @@ function createGeneratedReviewTasks(event, result) {
       analysisMethod: result.analysisMethod,
       sourceEvidenceIds: [...task.evidenceIds],
     },
+    legalBasis: [...task.legalBasis],
   }))
 }
 
@@ -70,17 +71,20 @@ export function applyPreliminaryImpactAnalysis(event, result) {
   return {
     ...event,
     analysisStatus:
-      result.preliminaryImpact.impactLevel === 'Further Review Required'
+      result.impactAssessment.level === 'Further Review Required'
         ? 'Further Review Required'
         : 'Analysis completed',
     analysisError: null,
     impactAnalysis: result,
-    shortSummary: result.changeSummary.whatChanged,
+    shortSummary: result.changeSummary.newRequirement,
     changeSummary: {
-      previousUnderstanding: null,
-      sourceBackedChange: result.changeSummary.whatChanged,
+      comparisonMode: result.changeSummary.comparisonMode,
+      previousRequirement: result.changeSummary.previousRequirement,
       newRequirement: result.changeSummary.newRequirement,
+      preliminaryInterpretation:
+        result.changeSummary.preliminaryInterpretation,
       whyItMatters: result.changeSummary.whyItMatters,
+      legalBasis: [...result.changeSummary.legalBasis],
     },
     affectedLegalTopics: [
       ...new Set(result.reviewTasks.map((task) => task.legalTopic)),
@@ -97,7 +101,7 @@ export function applyPreliminaryImpactAnalysis(event, result) {
     documentReviewDetails: result.suggestedDocuments.map((item) => ({
       ...item,
     })),
-    preliminaryImpactLevel: result.preliminaryImpact.impactLevel,
+    preliminaryImpactLevel: result.impactAssessment.level,
     requiresHumanReview: true,
     generatedReviewTasks,
   }

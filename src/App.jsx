@@ -69,6 +69,7 @@ function App() {
   const [radarEvents, setRadarEvents] = useState(regulatoryChangeEvents)
   const [detectedRegulatoryItems, setDetectedRegulatoryItems] = useState([])
   const [taskProgress, setTaskProgress] = useState({})
+  const [humanReviewRecords, setHumanReviewRecords] = useState({})
   const [documentReviewContext, setDocumentReviewContext] = useState(null)
   const [documentReviewInitialMode, setDocumentReviewInitialMode] =
     useState('demo')
@@ -137,6 +138,11 @@ function App() {
 
     try {
       const result = await requestRegulatoryImpactAnalysis(event)
+      setHumanReviewRecords((currentRecords) => {
+        const nextRecords = { ...currentRecords }
+        delete nextRecords[event.id]
+        return nextRecords
+      })
       replaceRadarEvent(applyPreliminaryImpactAnalysis(event, result))
     } catch (error) {
       replaceRadarEvent(
@@ -231,6 +237,16 @@ function App() {
     )
   }
 
+  const handleHumanReviewChange = (eventId, reviewKey, record) => {
+    setHumanReviewRecords((currentRecords) => ({
+      ...currentRecords,
+      [eventId]: {
+        ...(currentRecords[eventId] || {}),
+        [reviewKey]: record,
+      },
+    }))
+  }
+
   return (
     <div className="app-shell">
       <DashboardHeader />
@@ -283,6 +299,16 @@ function App() {
             }
             onRunPreliminaryImpactAnalysis={() =>
               handleRunPreliminaryImpactAnalysis(selectedChangeEvent)
+            }
+            humanReviewRecords={
+              humanReviewRecords[selectedChangeEvent.id] || {}
+            }
+            onHumanReviewChange={(reviewKey, record) =>
+              handleHumanReviewChange(
+                selectedChangeEvent.id,
+                reviewKey,
+                record,
+              )
             }
           />
         ) : activeSection === 'radar' ? (

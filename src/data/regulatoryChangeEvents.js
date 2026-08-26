@@ -16,8 +16,6 @@ export const REVIEW_TASK_STATUSES = Object.freeze([
   'Completed',
 ])
 
-const PREVIOUS_VERSION_UNAVAILABLE =
-  'Previous version comparison not available in this prototype.'
 const UNREVIEWED_IMPACT =
   'The preliminary legal impact has not been independently reviewed for this demo event.'
 
@@ -55,7 +53,7 @@ const UNREVIEWED_IMPACT =
  * @property {string} verificationStatus
  * @property {string} demoLabel
  * @property {string} shortSummary
- * @property {{previousUnderstanding: string, newRequirement: string, whyItMatters: string}} changeSummary
+ * @property {{comparisonMode: 'new_source_summary'|'verified_change_comparison', previousRequirement: string|null, newRequirement: string, preliminaryInterpretation: string, whyItMatters: string}} changeSummary
  * @property {string[]} affectedLegalTopics
  * @property {string[]} potentiallyAffectedActivities
  * @property {string[]} documentsToReview
@@ -196,8 +194,11 @@ function createEvent({
     demoLabel: 'Demo change event',
     shortSummary: update.summary,
     changeSummary: {
-      previousUnderstanding: PREVIOUS_VERSION_UNAVAILABLE,
+      comparisonMode: 'new_source_summary',
+      previousRequirement: null,
       newRequirement: update.summary,
+      preliminaryInterpretation:
+        'This demo summary is a preliminary research interpretation and requires human legal review.',
       whyItMatters: update.businessImpact || UNREVIEWED_IMPACT,
     },
     affectedLegalTopics: [...update.legalTopics],

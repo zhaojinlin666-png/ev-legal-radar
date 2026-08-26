@@ -7,6 +7,8 @@ function ReviewTaskList({
   onStatusChange,
   onToggleQuestion,
   onReviewDocument,
+  reviewRecords = {},
+  onHumanReviewChange,
 }) {
   if (tasks.length === 0) {
     return (
@@ -28,6 +30,8 @@ function ReviewTaskList({
           onStatusChange={onStatusChange}
           onToggleQuestion={onToggleQuestion}
           onReviewDocument={onReviewDocument}
+          humanReviewRecord={reviewRecords[`review-task:${task.id}`]}
+          onHumanReviewChange={onHumanReviewChange}
         />
       ))}
     </div>

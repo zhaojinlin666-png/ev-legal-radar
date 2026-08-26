@@ -53,8 +53,10 @@ export function createReviewEventFromDetectedItem(item) {
     demoLabel: null,
     shortSummary: null,
     changeSummary: {
-      previousUnderstanding: null,
+      comparisonMode: 'new_source_summary',
+      previousRequirement: null,
       newRequirement: null,
+      preliminaryInterpretation: null,
       whyItMatters: null,
     },
     affectedLegalTopics: [],
