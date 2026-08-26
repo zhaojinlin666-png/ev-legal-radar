@@ -76,7 +76,11 @@ function summarizeResponseStructure(response) {
   const parsedOutput = response?.output_parsed
 
   return {
+    responseIdPresent:
+      typeof response?.id === 'string' && response.id.length > 0,
     responseStatus: response?.status,
+    responseErrorCode: response?.error?.code,
+    incompleteReason: response?.incomplete_details?.reason,
     hasOutputParsed: parsedOutput !== undefined && parsedOutput !== null,
     outputParsedType: getValueType(parsedOutput),
     outputParsedKeys:
@@ -88,7 +92,103 @@ function summarizeResponseStructure(response) {
       typeof response?.output_text === 'string'
         ? response.output_text.length
         : null,
+    outputType: getValueType(response?.output),
+    outputItemTypes: Array.isArray(response?.output)
+      ? response.output.slice(0, 20).map((item) => ({
+          type: item?.type,
+          status: item?.status,
+          contentTypes: Array.isArray(item?.content)
+            ? item.content.map((content) => content?.type)
+            : [],
+          hasParsedContent: Array.isArray(item?.content)
+            ? item.content.some(
+                (content) =>
+                  content?.parsed !== undefined && content.parsed !== null,
+              )
+            : false,
+        }))
+      : [],
   }
+}
+
+function getSafeParserIssues(error) {
+  if (!Array.isArray(error?.issues)) return []
+
+  return error.issues.slice(0, 12).map((issue) => ({
+    path: Array.isArray(issue?.path) ? issue.path.join('.') : '',
+    code: typeof issue?.code === 'string' ? issue.code : 'custom',
+  }))
+}
+
+function isStructuredParserError(error) {
+  return (
+    error instanceof SyntaxError ||
+    error?.name === 'ZodError' ||
+    Array.isArray(error?.issues)
+  )
+}
+
+function getNestedParsedOutput(response) {
+  if (!Array.isArray(response?.output)) return null
+
+  for (const item of response.output) {
+    if (!Array.isArray(item?.content)) continue
+
+    for (const content of item.content) {
+      if (content?.parsed !== undefined && content.parsed !== null) {
+        return content.parsed
+      }
+    }
+  }
+
+  return null
+}
+
+export function extractStructuredImpactOutput(response) {
+  if (response?.status !== 'completed') {
+    throw new RegulatoryImpactValidationError(
+      'OpenAI did not return a completed structured impact analysis.',
+      {
+        validationCode: 'STRUCTURED_OUTPUT_UNAVAILABLE',
+        validationIssues: [{ path: 'response.status', code: 'custom' }],
+      },
+    )
+  }
+
+  if (response.output_parsed !== undefined && response.output_parsed !== null) {
+    return response.output_parsed
+  }
+
+  const nestedParsedOutput = getNestedParsedOutput(response)
+  if (nestedParsedOutput !== null) return nestedParsedOutput
+
+  if (
+    typeof response.output_text === 'string' &&
+    response.output_text.trim().length > 0
+  ) {
+    try {
+      return JSON.parse(response.output_text)
+    } catch (error) {
+      throw new RegulatoryImpactValidationError(
+        'OpenAI returned malformed structured impact JSON.',
+        {
+          validationCode: 'STRUCTURED_OUTPUT_PARSE_FAILED',
+          validationIssues: [
+            { path: 'response.output_text', code: 'invalid_json' },
+          ],
+          cause: error,
+        },
+      )
+    }
+  }
+
+  throw new RegulatoryImpactValidationError(
+    'OpenAI did not return structured impact output.',
+    {
+      validationCode: 'STRUCTURED_OUTPUT_UNAVAILABLE',
+      validationIssues: [{ path: 'response.output', code: 'custom' }],
+    },
+  )
 }
 
 export function buildRegulatoryImpactInput({
@@ -133,59 +233,82 @@ async function requestStructuredImpact({
   correctionInstruction,
   priorOutput,
   attempt,
+  signal,
 }) {
-  const response = await openai.responses.parse({
-    model: getOpenAiModel(),
-    store: false,
-    input: [
-      { role: 'system', content: SYSTEM_INSTRUCTIONS },
-      ...(correctionInstruction
-        ? [
-            {
-              role: 'system',
-              content: `A prior output failed strict server validation. Apply this bounded correction: ${correctionInstruction}`,
-            },
-            ...(priorOutput
-              ? [
-                  {
-                    role: 'user',
-                    content: `Prior structured result to repair:\n${JSON.stringify(priorOutput)}`,
-                  },
-                ]
-              : []),
-          ]
-        : []),
-      { role: 'user', content: analysisInput },
-    ],
-    text: {
-      format: zodTextFormat(
-        regulatoryImpactModelResponseSchema,
-        'preliminary_regulatory_impact_analysis',
-      ),
-    },
-    max_output_tokens: 9000,
-  })
+  let response
+
+  try {
+    response = await openai.responses.parse(
+      {
+        model: getOpenAiModel(),
+        store: false,
+        input: [
+          { role: 'system', content: SYSTEM_INSTRUCTIONS },
+          ...(correctionInstruction
+            ? [
+                {
+                  role: 'system',
+                  content: `A prior output failed strict server validation. Apply this bounded correction: ${correctionInstruction}`,
+                },
+                ...(priorOutput
+                  ? [
+                      {
+                        role: 'user',
+                        content: `Prior structured result to repair:\n${JSON.stringify(priorOutput)}`,
+                      },
+                    ]
+                  : []),
+              ]
+            : []),
+          { role: 'user', content: analysisInput },
+        ],
+        text: {
+          format: zodTextFormat(
+            regulatoryImpactModelResponseSchema,
+            'preliminary_regulatory_impact_analysis',
+          ),
+        },
+        max_output_tokens: 9000,
+      },
+      signal ? { signal, maxRetries: 0 } : undefined,
+    )
+  } catch (error) {
+    if (!isStructuredParserError(error)) throw error
+
+    const validationError = new RegulatoryImpactValidationError(
+      'OpenAI structured impact output could not be parsed.',
+      {
+        validationCode: 'STRUCTURED_OUTPUT_PARSE_FAILED',
+        validationIssues: getSafeParserIssues(error),
+      },
+    )
+
+    console.error('OpenAI regulatory impact structured parsing failed.', {
+      attempt,
+      errorName: error?.name,
+      validationCode: validationError.validationCode,
+      validationIssues: validationError.validationIssues,
+    })
+    throw validationError
+  }
 
   console.log('OpenAI regulatory impact response received.', {
     attempt,
     ...summarizeResponseStructure(response),
   })
 
-  if (
-    response.status !== 'completed' ||
-    response.output_parsed === undefined ||
-    response.output_parsed === null
-  ) {
-    throw new RegulatoryImpactValidationError(
-      'OpenAI did not return a completed structured impact analysis.',
-      {
-        validationCode: 'STRUCTURED_OUTPUT_UNAVAILABLE',
-        validationIssues: [],
-      },
-    )
+  try {
+    return extractStructuredImpactOutput(response)
+  } catch (error) {
+    console.error('OpenAI regulatory impact output extraction failed.', {
+      attempt,
+      ...summarizeResponseStructure(response),
+      errorName: error?.name,
+      validationCode: error?.validationCode,
+      validationIssues: error?.validationIssues,
+    })
+    throw error
   }
-
-  return response.output_parsed
 }
 
 function validateImpactOutput({
@@ -258,6 +381,7 @@ async function repairProhibitedConclusion({
   officialSourceMaterial,
   allowedAuthorities,
   attempt,
+  signal,
 }) {
   const failingPaths = getFailingPaths(validationError)
   const failingPath = failingPaths.join(', ') || 'unknown'
@@ -275,6 +399,7 @@ async function repairProhibitedConclusion({
       buildProhibitedConclusionRepairInstruction(validationError),
     priorOutput: invalidOutput,
     attempt,
+    signal,
   })
 
   const normalizedResult = validateImpactOutput({
@@ -297,6 +422,7 @@ export async function executeRegulatoryImpactAnalysis({
   event,
   officialSource,
   allowedAuthorities,
+  signal,
 }) {
   const analysisInput = buildRegulatoryImpactInput({
     event,
@@ -308,6 +434,7 @@ export async function executeRegulatoryImpactAnalysis({
     openai,
     analysisInput,
     attempt: 1,
+    signal,
   })
 
   try {
@@ -329,6 +456,7 @@ export async function executeRegulatoryImpactAnalysis({
         officialSourceMaterial,
         allowedAuthorities,
         attempt: 2,
+        signal,
       })
     }
 
@@ -353,6 +481,7 @@ export async function executeRegulatoryImpactAnalysis({
       correctionInstruction,
       priorOutput: firstOutput,
       attempt: 2,
+      signal,
     })
 
     try {
@@ -374,6 +503,7 @@ export async function executeRegulatoryImpactAnalysis({
           officialSourceMaterial,
           allowedAuthorities,
           attempt: 3,
+          signal,
         })
       }
 
@@ -386,6 +516,7 @@ export async function runRegulatoryImpactAnalysis({
   event,
   officialSource,
   allowedAuthorities,
+  signal,
 }) {
   try {
     return await executeRegulatoryImpactAnalysis({
@@ -393,6 +524,7 @@ export async function runRegulatoryImpactAnalysis({
       event,
       officialSource,
       allowedAuthorities,
+      signal,
     })
   } catch (error) {
     throw mapOpenAiProviderError(error)

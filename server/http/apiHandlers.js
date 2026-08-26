@@ -78,7 +78,7 @@ export async function handleRegulatoryUpdatesRequest(
 }
 
 export async function handleRegulatoryImpactAnalysisRequest(
-  { body } = {},
+  { body, signal } = {},
   {
     validateRequestImpl = validateRegulatoryImpactRequest,
     hasOpenAiApiKeyImpl = hasOpenAiApiKey,
@@ -111,6 +111,7 @@ export async function handleRegulatoryImpactAnalysisRequest(
       event,
       officialSource,
       allowedAuthorities,
+      signal,
     })
 
     return apiResult(200, createApiResponseImpl(result))

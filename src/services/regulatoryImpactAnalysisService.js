@@ -102,6 +102,57 @@ export function createRegulatoryImpactRequestPayload(event) {
   }
 }
 
+export async function parseRegulatoryImpactHttpResponse(response) {
+  const contentType = response.headers.get('content-type') || ''
+  let responseText
+
+  try {
+    responseText = await response.text()
+  } catch {
+    console.error('Regulatory impact response body could not be read.', {
+      status: response.status,
+      contentType,
+    })
+    throw new Error(
+      'Preliminary impact analysis returned an unreadable response.',
+    )
+  }
+
+  try {
+    return JSON.parse(responseText)
+  } catch {
+    console.error('Regulatory impact response was not valid JSON.', {
+      status: response.status,
+      contentType,
+      responseLength: responseText.length,
+      netlifyRequestId:
+        response.headers.get('x-nf-request-id') || undefined,
+    })
+
+    if (response.status === 504 || response.status === 502) {
+      throw new Error(
+        'Preliminary impact analysis service ended before returning a structured response. Please try again.',
+      )
+    }
+
+    throw new Error(
+      'Preliminary impact analysis returned an unreadable response.',
+    )
+  }
+}
+
+export function parseRegulatoryImpactApiPayload(payload) {
+  const parsedResponse = impactApiResponseSchema.safeParse(payload)
+
+  if (!parsedResponse.success) {
+    throw new Error(
+      'Preliminary impact analysis returned an invalid response.',
+    )
+  }
+
+  return parsedResponse.data.result
+}
+
 export async function requestRegulatoryImpactAnalysis(event) {
   let response
 
@@ -120,15 +171,7 @@ export async function requestRegulatoryImpactAnalysis(event) {
     )
   }
 
-  let payload
-
-  try {
-    payload = await response.json()
-  } catch {
-    throw new Error(
-      'Preliminary impact analysis returned an unreadable response.',
-    )
-  }
+  const payload = await parseRegulatoryImpactHttpResponse(response)
 
   if (!response.ok) {
     throw new Error(
@@ -138,13 +181,5 @@ export async function requestRegulatoryImpactAnalysis(event) {
     )
   }
 
-  const parsedResponse = impactApiResponseSchema.safeParse(payload)
-
-  if (!parsedResponse.success) {
-    throw new Error(
-      'Preliminary impact analysis returned an invalid response.',
-    )
-  }
-
-  return parsedResponse.data.result
+  return parseRegulatoryImpactApiPayload(payload)
 }

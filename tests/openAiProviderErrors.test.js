@@ -119,6 +119,15 @@ test('provider errors map to distinct safe client categories', async () => {
     },
     {
       error: createProviderError({
+        name: 'APIUserAbortError',
+        message: 'Request was aborted.',
+        requestID: undefined,
+      }),
+      status: 504,
+      clientCode: 'OPENAI_REQUEST_TIMEOUT',
+    },
+    {
+      error: createProviderError({
         name: 'InternalServerError',
         status: 503,
         type: 'server_error',

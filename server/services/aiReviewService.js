@@ -416,6 +416,23 @@ export function mapOpenAiProviderError(error) {
       'timeout',
     ],
   )
+  const isRequestTimeout = includesProviderSignal(
+    [
+      error?.name,
+      error?.constructor?.name,
+      error?.cause?.code,
+      details.providerCode,
+      details.providerMessage,
+    ],
+    [
+      'apiuseraborterror',
+      'apiconnectiontimeouterror',
+      'request_timeout',
+      'request was aborted',
+      'timed out',
+      'timeout',
+    ],
+  )
 
   if (isModelUnavailable) {
     return createProviderServiceError(
@@ -472,6 +489,18 @@ export function mapOpenAiProviderError(error) {
       details,
       {
         statusCode: 429,
+        cause: error,
+      },
+    )
+  }
+
+  if (isRequestTimeout) {
+    return createProviderServiceError(
+      'AI provider response timed out before the serverless request deadline. Please try again.',
+      'OPENAI_REQUEST_TIMEOUT',
+      details,
+      {
+        statusCode: 504,
         cause: error,
       },
     )

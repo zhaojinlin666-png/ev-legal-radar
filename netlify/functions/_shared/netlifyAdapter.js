@@ -37,8 +37,13 @@ async function readJsonBody(request) {
   }
 }
 
-export function createNetlifyFunctionHandler({ method, apiHandler }) {
-  return async function netlifyFunctionHandler(request) {
+export function createNetlifyFunctionHandler({
+  method,
+  apiHandler,
+  executionTimeoutMs,
+  timeoutResponse,
+}) {
+  return async function netlifyFunctionHandler(request, context = {}) {
     if (request.method !== method) {
       return jsonResponse(
         405,
@@ -46,6 +51,13 @@ export function createNetlifyFunctionHandler({ method, apiHandler }) {
         { Allow: method },
       )
     }
+
+    let timeoutId
+    const hasExecutionDeadline =
+      Number.isFinite(executionTimeoutMs) && executionTimeoutMs > 0
+    const abortController = hasExecutionDeadline
+      ? new AbortController()
+      : null
 
     try {
       const requestInput = {}
@@ -57,13 +69,46 @@ export function createNetlifyFunctionHandler({ method, apiHandler }) {
         requestInput.body = parsedBody.body
       }
 
-      const result = await apiHandler(requestInput)
+      if (abortController) requestInput.signal = abortController.signal
+
+      const handlerPromise = Promise.resolve().then(() =>
+        apiHandler(requestInput),
+      )
+      const result = hasExecutionDeadline
+        ? await Promise.race([
+            handlerPromise,
+            new Promise((resolve) => {
+              timeoutId = setTimeout(() => {
+                abortController.abort()
+                console.error('Netlify function execution deadline reached.', {
+                  method,
+                  executionTimeoutMs,
+                  requestId: context?.requestId,
+                })
+                resolve(
+                  timeoutResponse || {
+                    status: 504,
+                    body: {
+                      error:
+                        'The serverless request timed out before a structured response could be returned.',
+                      code: 'FUNCTION_EXECUTION_TIMEOUT',
+                    },
+                  },
+                )
+              }, executionTimeoutMs)
+            }),
+          ])
+        : await handlerPromise
+
       return jsonResponse(result.status, result.body, result.headers)
     } catch (error) {
       console.error('Unhandled Netlify function error.', {
         errorName: error?.name,
+        requestId: context?.requestId,
       })
       return jsonResponse(500, { error: 'Internal server error.' })
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId)
     }
   }
 }

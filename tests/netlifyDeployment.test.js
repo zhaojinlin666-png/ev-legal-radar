@@ -7,6 +7,7 @@ import { createRegulatoryUpdatesFunction } from '../netlify/functions/regulatory
 import { createNetlifyFunctionHandler } from '../netlify/functions/_shared/netlifyAdapter.js'
 import { reviewLegalSource, reviewRules } from '../src/data/reviewRules.js'
 import { getApiEndpoint } from '../src/services/apiEndpoint.js'
+import { parseRegulatoryImpactHttpResponse } from '../src/services/regulatoryImpactAnalysisService.js'
 
 function jsonRequest(url, body, method = 'POST') {
   return new Request(url, {
@@ -132,6 +133,7 @@ test('regulatory impact Netlify Function delegates through source, authority and
       calls.push(['analysis', input.event.title])
       assert.equal(input.officialSource, officialSource)
       assert.equal(input.allowedAuthorities, allowedAuthorities)
+      assert.equal(input.signal instanceof AbortSignal, true)
       return { impact: 'service-result' }
     },
     createApiResponseImpl: (result) => ({ result }),
@@ -153,6 +155,83 @@ test('regulatory impact Netlify Function delegates through source, authority and
     ['authority', canonicalEvent.title],
     ['analysis', canonicalEvent.title],
   ])
+})
+
+test('Netlify adapter returns machine-readable JSON before its execution deadline', async () => {
+  const originalConsoleError = console.error
+  console.error = () => {}
+  const handler = createNetlifyFunctionHandler({
+    method: 'POST',
+    apiHandler: async () => new Promise(() => {}),
+    executionTimeoutMs: 5,
+    timeoutResponse: {
+      status: 504,
+      body: {
+        error: 'Structured response deadline reached.',
+        code: 'TEST_TIMEOUT',
+      },
+    },
+  })
+
+  try {
+    const response = await handler(
+      jsonRequest('https://example.netlify.app/.netlify/functions/test', {}),
+      { requestId: 'netlify-test-request' },
+    )
+
+    assert.equal(response.status, 504)
+    assert.match(response.headers.get('content-type'), /application\/json/u)
+    assert.deepEqual(await response.json(), {
+      error: 'Structured response deadline reached.',
+      code: 'TEST_TIMEOUT',
+    })
+  } finally {
+    console.error = originalConsoleError
+  }
+})
+
+test('production impact response parser accepts JSON and safely diagnoses non-JSON', async () => {
+  const validPayload = {
+    schemaVersion: 'test-version',
+    result: { requiresHumanReview: true },
+  }
+  const parsedPayload = await parseRegulatoryImpactHttpResponse(
+    new Response(JSON.stringify(validPayload), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  )
+  assert.deepEqual(parsedPayload, validPayload)
+
+  const capturedLogs = []
+  const originalConsoleError = console.error
+  console.error = (...entries) => capturedLogs.push(entries)
+
+  try {
+    await assert.rejects(
+      parseRegulatoryImpactHttpResponse(
+        new Response('<html>gateway timeout</html>', {
+          status: 504,
+          headers: {
+            'Content-Type': 'text/html',
+            'x-nf-request-id': 'safe-netlify-request-id',
+          },
+        }),
+      ),
+      /ended before returning a structured response/u,
+    )
+  } finally {
+    console.error = originalConsoleError
+  }
+
+  assert.equal(capturedLogs.length, 1)
+  assert.deepEqual(capturedLogs[0][1], {
+    status: 504,
+    contentType: 'text/html',
+    responseLength: 28,
+    netlifyRequestId: 'safe-netlify-request-id',
+  })
+  assert.doesNotMatch(JSON.stringify(capturedLogs), /gateway timeout/u)
 })
 
 test('regulatory monitoring Netlify Function preserves no-store metadata response', async () => {

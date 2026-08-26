@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   executeRegulatoryImpactAnalysis,
+  extractStructuredImpactOutput,
 } from '../server/services/regulatoryImpactAnalysisService.js'
 import {
   RegulatoryImpactValidationError,
+  createRegulatoryImpactApiResponse,
   validateAndNormalizeRegulatoryImpact,
   validateRegulatoryImpactRequest,
 } from '../server/services/regulatoryImpactAnalysisValidation.js'
@@ -18,6 +20,7 @@ import {
 } from '../src/utils/regulatoryImpactWorkflow.js'
 import { createReviewEventFromDetectedItem } from '../src/utils/regulatoryMonitoring.js'
 import { createDocumentReviewContext } from '../src/utils/reviewWorkflow.js'
+import { parseRegulatoryImpactApiPayload } from '../src/services/regulatoryImpactAnalysisService.js'
 
 const detectedSourceUrl =
   'https://www.cac.gov.cn/2026-08/07/c_example_personal_information.htm'
@@ -138,6 +141,24 @@ test('structured impact output is validated and missing authority is explicit', 
   assert.equal(
     result.analysisMethod,
     'AI-assisted preliminary impact analysis',
+  )
+})
+
+test('server response remains compatible with the production client schema', () => {
+  const normalizedResult = createNormalizedResult()
+  const apiResponse = createRegulatoryImpactApiResponse(normalizedResult)
+
+  assert.deepEqual(
+    parseRegulatoryImpactApiPayload(apiResponse),
+    normalizedResult,
+  )
+  assert.throws(
+    () =>
+      parseRegulatoryImpactApiPayload({
+        schemaVersion: apiResponse.schemaVersion,
+        result: { reviewTasks: [] },
+      }),
+    /invalid response/u,
   )
 })
 
@@ -309,6 +330,106 @@ test('structured analysis retries once after unsupported authority output', asyn
 
   assert.equal(attempt, 2)
   assert.equal(result.legalAuthorityStatus, 'LEGAL_SOURCE_NOT_VERIFIED')
+})
+
+test('impact request uses strict JSON Schema structured output', async () => {
+  let structuredRequest
+  let requestOptions
+  const abortController = new AbortController()
+  const openai = {
+    responses: {
+      parse: async (request, options) => {
+        structuredRequest = request
+        requestOptions = options
+        return {
+          status: 'completed',
+          output_parsed: createModelOutput(),
+        }
+      },
+    },
+  }
+
+  const result = await executeRegulatoryImpactAnalysis({
+    openai,
+    event: createReviewEventFromDetectedItem(detectedItem),
+    officialSource,
+    allowedAuthorities: [],
+    signal: abortController.signal,
+  })
+
+  assert.equal(structuredRequest.text.format.type, 'json_schema')
+  assert.equal(structuredRequest.text.format.strict, true)
+  assert.equal(
+    structuredRequest.text.format.schema.additionalProperties,
+    false,
+  )
+  assert.deepEqual(structuredRequest.text.format.schema.required, [
+    'sourceEvidence',
+    'changeSummary',
+    'preliminaryImpact',
+    'affectedActivities',
+    'suggestedDocuments',
+    'reviewTasks',
+    'legalAuthorityIds',
+  ])
+  assert.equal(requestOptions.signal, abortController.signal)
+  assert.equal(requestOptions.maxRetries, 0)
+  assert.equal(result.requiresHumanReview, true)
+})
+
+test('valid structured output_text is parsed when output_parsed is unavailable', async () => {
+  const output = createModelOutput()
+  const parsed = extractStructuredImpactOutput({
+    status: 'completed',
+    output_parsed: null,
+    output_text: JSON.stringify(output),
+    output: [],
+  })
+
+  assert.deepEqual(parsed, output)
+})
+
+test('malformed structured output_text is rejected without fallback analysis', () => {
+  assert.throws(
+    () =>
+      extractStructuredImpactOutput({
+        status: 'completed',
+        output_parsed: null,
+        output_text: '{"sourceEvidence":',
+        output: [],
+      }),
+    (error) => {
+      assert.equal(error.validationCode, 'STRUCTURED_OUTPUT_PARSE_FAILED')
+      assert.deepEqual(error.validationIssues, [
+        { path: 'response.output_text', code: 'invalid_json' },
+      ])
+      return true
+    },
+  )
+})
+
+test('SDK structured parser failures become safe validation errors', async () => {
+  const openai = {
+    responses: {
+      parse: async () => {
+        throw new SyntaxError('Unexpected token in provider output')
+      },
+    },
+  }
+
+  await assert.rejects(
+    executeRegulatoryImpactAnalysis({
+      openai,
+      event: createReviewEventFromDetectedItem(detectedItem),
+      officialSource,
+      allowedAuthorities: [],
+    }),
+    (error) => {
+      assert.equal(error.validationCode, 'STRUCTURED_OUTPUT_PARSE_FAILED')
+      assert.equal(error.publicMessage.includes('invalid response'), true)
+      return true
+    },
+  )
 })
 
 test('a first prohibited conclusion is repaired exactly once', async () => {
