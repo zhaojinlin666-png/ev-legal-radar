@@ -116,7 +116,7 @@ export async function requestRegulatoryImpactAnalysis(event) {
     })
   } catch {
     throw new Error(
-      'Preliminary impact analysis could not reach the local server.',
+      'Preliminary impact analysis could not reach the server.',
     )
   }
 

@@ -68,13 +68,17 @@ Mandatory constraints:
 - Confidence describes confidence in this preliminary text analysis, not a probability of legal compliance.
 - Return only the structured response required by the schema.`
 
-class AiReviewServiceError extends Error {
+export class AiReviewServiceError extends Error {
   constructor(publicMessage, options = {}) {
     super(options.internalMessage || publicMessage, { cause: options.cause })
     this.name = 'AiReviewServiceError'
     this.statusCode = options.statusCode || 502
     this.publicMessage = publicMessage
+    this.clientCode = options.clientCode
     this.providerStatus = options.providerStatus
+    this.providerType = options.providerType
+    this.providerCode = options.providerCode
+    this.providerMessage = options.providerMessage
     this.requestId = options.requestId
   }
 }
@@ -131,6 +135,81 @@ export function getConfiguredOpenAiClient() {
   }
 
   return getOpenAiClient(apiKey)
+}
+
+function getProviderString(error, property) {
+  const directValue = error?.[property]
+  const nestedValue = error?.error?.[property]
+  const value =
+    typeof directValue === 'string'
+      ? directValue
+      : typeof nestedValue === 'string'
+        ? nestedValue
+        : null
+
+  return value?.trim() || null
+}
+
+function sanitizeProviderMessage(message) {
+  if (typeof message !== 'string') return null
+
+  let sanitized = message
+  const configuredApiKey = process.env.OPENAI_API_KEY?.trim()
+
+  if (configuredApiKey) {
+    sanitized = sanitized.split(configuredApiKey).join('[REDACTED_API_KEY]')
+  }
+
+  return sanitized
+    .replace(/\bsk-[A-Za-z0-9_-]{4,}\b/gu, '[REDACTED_API_KEY]')
+    .replace(/(\bBearer\s+)[A-Za-z0-9._~+/-]+=*/giu, '$1[REDACTED]')
+    .replace(
+      /(\bapi[_ -]?key\s*(?:is|=|:)\s*)["']?[^\s"',;]+/giu,
+      '$1[REDACTED_API_KEY]',
+    )
+    .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/giu, '$1[REDACTED]@')
+    .trim()
+}
+
+function getProviderErrorDetails(error) {
+  const providerStatus = Number.isInteger(error?.status) ? error.status : null
+  const providerType = getProviderString(error, 'type')
+  const providerCode = getProviderString(error, 'code')
+  const rawProviderMessage =
+    (typeof error?.error?.message === 'string'
+      ? error.error.message.trim()
+      : null) ||
+    (typeof error?.message === 'string' ? error.message : null)
+  const requestId = [
+    error?.requestID,
+    error?.request_id,
+    error?.headers?.get?.('x-request-id'),
+  ].find((value) => typeof value === 'string' && value.trim().length > 0)
+
+  return {
+    providerStatus,
+    providerType,
+    providerCode,
+    providerMessage: sanitizeProviderMessage(rawProviderMessage),
+    requestId: requestId?.trim() || undefined,
+  }
+}
+
+function includesProviderSignal(values, patterns) {
+  const searchableText = values.filter(Boolean).join(' ').toLowerCase()
+  return patterns.some((pattern) => searchableText.includes(pattern))
+}
+
+function createProviderServiceError(publicMessage, clientCode, details, options) {
+  return new AiReviewServiceError(publicMessage, {
+    clientCode,
+    providerStatus: details.providerStatus,
+    providerType: details.providerType,
+    providerCode: details.providerCode,
+    providerMessage: details.providerMessage,
+    requestId: details.requestId,
+    ...options,
+  })
 }
 
 export function buildReviewInput({ documentText, reviewRules, legalSource }) {
@@ -294,40 +373,143 @@ async function requestStructuredReview({
 export function mapOpenAiProviderError(error) {
   if (error?.publicMessage && error?.statusCode) return error
 
-  const providerStatus = Number.isInteger(error?.status) ? error.status : null
-  const requestId =
-    typeof error?.request_id === 'string' ? error.request_id : undefined
+  const details = getProviderErrorDetails(error)
+  const providerSignals = [
+    details.providerCode,
+    details.providerType,
+    details.providerMessage,
+  ]
+  const isModelUnavailable =
+    details.providerStatus === 404 ||
+    includesProviderSignal(providerSignals, [
+      'model_not_found',
+      'model not found',
+      'model does not exist',
+      'model is not available',
+      'model unavailable',
+      'unsupported model',
+      'does not have access to model',
+    ])
+  const isQuotaFailure =
+    details.providerStatus === 429 &&
+    includesProviderSignal(providerSignals, [
+      'insufficient_quota',
+      'credit_balance_exhausted',
+      'spend_limit',
+      'usage_limit',
+      'quota',
+      'billing',
+    ])
+  const isNetworkFailure = includesProviderSignal(
+    [
+      error?.name,
+      error?.constructor?.name,
+      error?.cause?.code,
+      details.providerCode,
+      details.providerMessage,
+    ],
+    [
+      'apiconnectionerror',
+      'apiconnectiontimeouterror',
+      'connection error',
+      'request_timeout',
+      'timeout',
+    ],
+  )
 
-  if (providerStatus === 401 || providerStatus === 403) {
-    return new AiReviewServiceError(
-      'AI review provider authentication failed. Check the local server configuration.',
+  if (isModelUnavailable) {
+    return createProviderServiceError(
+      'The configured AI model is unsupported or unavailable for this OpenAI project.',
+      'OPENAI_MODEL_UNAVAILABLE',
+      details,
       {
         statusCode: 502,
-        providerStatus,
-        requestId,
         cause: error,
       },
     )
   }
 
-  if (providerStatus === 429) {
-    return new AiReviewServiceError(
-      'AI review service is temporarily rate limited. Please try again later.',
+  if (details.providerStatus === 401) {
+    return createProviderServiceError(
+      'AI provider authentication failed. Verify the server-side OpenAI API key configuration.',
+      'OPENAI_AUTHENTICATION_FAILED',
+      details,
+      {
+        statusCode: 502,
+        cause: error,
+      },
+    )
+  }
+
+  if (details.providerStatus === 403) {
+    return createProviderServiceError(
+      'AI provider access was denied. Verify the server-side OpenAI project permissions.',
+      'OPENAI_ACCESS_DENIED',
+      details,
+      {
+        statusCode: 502,
+        cause: error,
+      },
+    )
+  }
+
+  if (isQuotaFailure) {
+    return createProviderServiceError(
+      'AI provider quota is unavailable. Check OpenAI billing or usage limits.',
+      'OPENAI_INSUFFICIENT_QUOTA',
+      details,
       {
         statusCode: 429,
-        providerStatus,
-        requestId,
         cause: error,
       },
     )
   }
 
-  return new AiReviewServiceError('AI review provider request failed.', {
-    statusCode: 502,
-    providerStatus,
-    requestId,
-    cause: error,
-  })
+  if (details.providerStatus === 429) {
+    return createProviderServiceError(
+      'AI provider rate limit was reached. Please try again later.',
+      'OPENAI_RATE_LIMITED',
+      details,
+      {
+        statusCode: 429,
+        cause: error,
+      },
+    )
+  }
+
+  if (isNetworkFailure) {
+    return createProviderServiceError(
+      'AI provider could not be reached. Please try again later.',
+      'OPENAI_NETWORK_ERROR',
+      details,
+      {
+        statusCode: 502,
+        cause: error,
+      },
+    )
+  }
+
+  if (details.providerStatus && details.providerStatus >= 500) {
+    return createProviderServiceError(
+      'AI provider is temporarily unavailable. Please try again later.',
+      'OPENAI_PROVIDER_UNAVAILABLE',
+      details,
+      {
+        statusCode: 503,
+        cause: error,
+      },
+    )
+  }
+
+  return createProviderServiceError(
+    'AI provider request failed. Check the server runtime logs for provider error details.',
+    'OPENAI_PROVIDER_REQUEST_FAILED',
+    details,
+    {
+      statusCode: 502,
+      cause: error,
+    },
+  )
 }
 
 export async function executeAiReview({

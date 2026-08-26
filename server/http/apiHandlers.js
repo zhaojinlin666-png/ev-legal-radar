@@ -25,6 +25,15 @@ function hasOpenAiApiKey() {
   return Boolean(process.env.OPENAI_API_KEY?.trim())
 }
 
+function safeErrorBody(error, fallbackMessage) {
+  return {
+    error: error?.publicMessage || fallbackMessage,
+    ...(typeof error?.clientCode === 'string'
+      ? { code: error.clientCode }
+      : {}),
+  }
+}
+
 function matchesVerifiedRuleMetadata(requestRule, verifiedRule) {
   const requestedAuthorityIds = Array.isArray(requestRule.legalAuthorities)
     ? requestRule.legalAuthorities.map((authority) => authority?.provisionId)
@@ -84,7 +93,9 @@ export async function handleRegulatoryImpactAnalysisRequest(
 
     if (!hasOpenAiApiKeyImpl()) {
       return apiResult(503, {
-        error: 'AI impact analysis service is not configured.',
+        error:
+          'AI impact analysis service is not configured. Configure OPENAI_API_KEY in the server environment.',
+        code: 'AI_SERVICE_NOT_CONFIGURED',
       })
     }
 
@@ -108,16 +119,21 @@ export async function handleRegulatoryImpactAnalysisRequest(
       errorName: error?.name,
       statusCode: error?.statusCode,
       providerStatus: error?.providerStatus,
+      providerType: error?.providerType,
+      providerCode: error?.providerCode,
+      providerMessage: error?.providerMessage,
       requestId: error?.requestId,
       validationCode: error?.validationCode,
       validationIssues: error?.validationIssues,
     })
 
-    return apiResult(error?.statusCode ?? 500, {
-      error:
-        error?.publicMessage ||
+    return apiResult(
+      error?.statusCode ?? 500,
+      safeErrorBody(
+        error,
         'Preliminary regulatory impact analysis failed.',
-    })
+      ),
+    )
   }
 }
 
@@ -206,13 +222,17 @@ export async function handleAiReviewRequest(
       errorName: error?.name,
       statusCode: error?.statusCode,
       providerStatus: error?.providerStatus,
+      providerType: error?.providerType,
+      providerCode: error?.providerCode,
+      providerMessage: error?.providerMessage,
       requestId: error?.requestId,
       validationCode: error?.validationCode,
       validationIssues: error?.validationIssues,
     })
 
-    return apiResult(error?.statusCode ?? 500, {
-      error: error?.publicMessage || 'AI review request failed.',
-    })
+    return apiResult(
+      error?.statusCode ?? 500,
+      safeErrorBody(error, 'AI review request failed.'),
+    )
   }
 }
