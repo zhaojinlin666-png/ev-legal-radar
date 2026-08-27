@@ -4167,6 +4167,69 @@
   line-height: 1.65;
 }
 
+.verified-quotation-label {
+  display: block;
+  width: fit-content;
+  margin-top: 8px;
+  padding: 3px 6px;
+  border: 1px solid #bfd5ca;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 7px;
+  font-weight: 740;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.evidence-grounding-notice {
+  display: grid;
+  gap: 6px;
+  padding: 11px 12px;
+  border: 1px solid #d9e3de;
+  border-radius: 6px;
+  background: #f8faf9;
+}
+
+.evidence-grounding-notice--partially_verified,
+.evidence-grounding-notice--unavailable {
+  border-color: #ded4bc;
+  background: #fcfaf5;
+}
+
+.evidence-grounding-notice > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.evidence-grounding-notice strong,
+.evidence-grounding-notice span {
+  color: var(--green);
+  font-size: 8px;
+  font-weight: 720;
+  text-transform: uppercase;
+}
+
+.evidence-grounding-notice span {
+  color: var(--soft-muted);
+  font-size: 7px;
+}
+
+.evidence-grounding-notice p,
+.evidence-grounding-notice small {
+  margin: 0;
+  color: #526069;
+  font-size: 8px;
+  line-height: 1.55;
+}
+
+.evidence-grounding-notice small {
+  color: var(--soft-muted);
+  font-size: 7px;
+}
+
 .impact-legal-authority__heading {
   display: flex;
   align-items: center;

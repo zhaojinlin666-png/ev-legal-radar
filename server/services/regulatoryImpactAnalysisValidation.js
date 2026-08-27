@@ -10,6 +10,7 @@ import {
   REGULATORY_IMPACT_EVIDENCE_TYPES,
   REGULATORY_IMPACT_LEVELS,
   REGULATORY_IMPACT_SCHEMA_VERSION,
+  REGULATORY_EVIDENCE_GROUNDING_STATUSES,
 } from '../../shared/regulatoryImpactContract.js'
 import {
   REGULATORY_MONITORING_SOURCE,
@@ -49,6 +50,21 @@ const sourceEvidenceSchema = z
   .object({
     evidenceId: z.string().min(1).max(100),
     quotation: z.string().min(1).max(2400),
+  })
+  .strict()
+
+const verifiedSourceEvidenceSchema = sourceEvidenceSchema
+  .extend({
+    verificationStatus: z.literal('verified'),
+  })
+  .strict()
+
+const evidenceGroundingSchema = z
+  .object({
+    status: z.enum(REGULATORY_EVIDENCE_GROUNDING_STATUSES),
+    verifiedEvidenceCount: z.number().int().min(0).max(20),
+    rejectedEvidenceCount: z.number().int().min(0).max(20),
+    affectedPaths: z.array(z.string().min(1).max(180)).max(100),
   })
   .strict()
 
@@ -167,7 +183,8 @@ const withLegalBasis = (schema) =>
 
 export const normalizedRegulatoryImpactResultSchema = z
   .object({
-    sourceEvidence: z.array(sourceEvidenceSchema).max(20),
+    sourceEvidence: z.array(verifiedSourceEvidenceSchema).max(20),
+    evidenceGrounding: evidenceGroundingSchema,
     changeSummary: withLegalBasis(changeSummarySchema),
     impactAssessment: withLegalBasis(impactAssessmentSchema).extend({
       factors: z.array(withLegalBasis(impactFactorSchema)).max(6),
@@ -357,6 +374,194 @@ function assertGroundedSourceEvidence(sourceEvidence, officialSourceMaterial) {
       )
     }
   })
+}
+
+function filterEvidenceIds(evidenceIds, verifiedEvidenceIds, path, affectedPaths) {
+  const retainedIds = evidenceIds.filter((evidenceId) =>
+    verifiedEvidenceIds.has(evidenceId),
+  )
+
+  if (retainedIds.length !== evidenceIds.length) affectedPaths.add(path)
+
+  return retainedIds
+}
+
+function filterGroundedItems({
+  items,
+  path,
+  verifiedEvidenceIds,
+  affectedPaths,
+}) {
+  return items.flatMap((item, index) => {
+    const evidencePath = `${path}.${index}.evidenceIds`
+    const lostEvidence = item.evidenceIds.some(
+      (evidenceId) => !verifiedEvidenceIds.has(evidenceId),
+    )
+    const evidenceIds = filterEvidenceIds(
+      item.evidenceIds,
+      verifiedEvidenceIds,
+      evidencePath,
+      affectedPaths,
+    )
+
+    if (evidenceIds.length === 0) {
+      affectedPaths.add(`${path}.${index}`)
+      return []
+    }
+
+    if (lostEvidence && item.evidenceType === 'FACT') {
+      affectedPaths.add(`${path}.${index}.evidenceType`)
+      return [{ ...item, evidenceIds, evidenceType: 'INFERENCE' }]
+    }
+
+    return [{ ...item, evidenceIds }]
+  })
+}
+
+function createUnavailableEvidenceResult(rejectedEvidenceCount, affectedPaths) {
+  return {
+    result: {
+      sourceEvidence: [],
+      changeSummary: {
+        comparisonMode: 'new_source_summary',
+        previousRequirement: null,
+        newRequirement:
+          '本次模型输出中没有可保留为已核验官方来源引文的要求摘要。',
+        preliminaryInterpretation:
+          '当前无法基于已核验引文形成初步解释，需由法律人员直接核查官方来源。',
+        whyItMatters:
+          '建议完成官方来源人工核查后，再评估潜在业务影响。',
+        evidenceIds: [],
+        legalAuthorityIds: [],
+      },
+      impactAssessment: {
+        level: 'Further Review Required',
+        rationale:
+          '支持本次影响判断的模型引文无法通过官方来源逐字核验，因此未保留相关影响结论。',
+        confidence: 'Low',
+        evidenceIds: [],
+        legalAuthorityIds: [],
+        factors: [],
+        humanReviewRequired: true,
+      },
+      affectedActivities: [],
+      suggestedDocuments: [],
+      reviewTasks: [],
+    },
+    evidenceGrounding: {
+      status: 'unavailable',
+      verifiedEvidenceCount: 0,
+      rejectedEvidenceCount,
+      affectedPaths: [...affectedPaths],
+    },
+  }
+}
+
+function sanitizeSourceEvidence(result, officialSourceMaterial) {
+  const normalizedSource = normalizeGroundedText(officialSourceMaterial)
+  const seenEvidenceIds = new Set()
+  const affectedPaths = new Set()
+  const verifiedSourceEvidence = []
+  let rejectedEvidenceCount = 0
+
+  result.sourceEvidence.forEach((evidence, index) => {
+    if (seenEvidenceIds.has(evidence.evidenceId)) {
+      throw new RegulatoryImpactValidationError(
+        'Preliminary impact analysis returned duplicate source evidence IDs.',
+        {
+          validationCode: 'DUPLICATE_SOURCE_EVIDENCE_ID',
+          validationIssues: [
+            { path: `sourceEvidence.${index}.evidenceId`, code: 'custom' },
+          ],
+        },
+      )
+    }
+
+    seenEvidenceIds.add(evidence.evidenceId)
+
+    if (normalizedSource.includes(normalizeGroundedText(evidence.quotation))) {
+      verifiedSourceEvidence.push(evidence)
+      return
+    }
+
+    rejectedEvidenceCount += 1
+    affectedPaths.add(`sourceEvidence.${index}.quotation`)
+  })
+
+  const verifiedEvidenceIds = new Set(
+    verifiedSourceEvidence.map((evidence) => evidence.evidenceId),
+  )
+  const changeEvidenceIds = filterEvidenceIds(
+    result.changeSummary.evidenceIds,
+    verifiedEvidenceIds,
+    'changeSummary.evidenceIds',
+    affectedPaths,
+  )
+  const impactEvidenceIds = filterEvidenceIds(
+    result.impactAssessment.evidenceIds,
+    verifiedEvidenceIds,
+    'impactAssessment.evidenceIds',
+    affectedPaths,
+  )
+
+  if (
+    verifiedSourceEvidence.length === 0 ||
+    changeEvidenceIds.length === 0 ||
+    impactEvidenceIds.length === 0
+  ) {
+    return createUnavailableEvidenceResult(
+      rejectedEvidenceCount,
+      affectedPaths,
+    )
+  }
+
+  const sanitizedResult = {
+    ...result,
+    sourceEvidence: verifiedSourceEvidence,
+    changeSummary: {
+      ...result.changeSummary,
+      evidenceIds: changeEvidenceIds,
+    },
+    impactAssessment: {
+      ...result.impactAssessment,
+      evidenceIds: impactEvidenceIds,
+      factors: filterGroundedItems({
+        items: result.impactAssessment.factors,
+        path: 'impactAssessment.factors',
+        verifiedEvidenceIds,
+        affectedPaths,
+      }),
+    },
+    affectedActivities: filterGroundedItems({
+      items: result.affectedActivities,
+      path: 'affectedActivities',
+      verifiedEvidenceIds,
+      affectedPaths,
+    }),
+    suggestedDocuments: filterGroundedItems({
+      items: result.suggestedDocuments,
+      path: 'suggestedDocuments',
+      verifiedEvidenceIds,
+      affectedPaths,
+    }),
+    reviewTasks: filterGroundedItems({
+      items: result.reviewTasks,
+      path: 'reviewTasks',
+      verifiedEvidenceIds,
+      affectedPaths,
+    }),
+  }
+
+  return {
+    result: sanitizedResult,
+    evidenceGrounding: {
+      status:
+        rejectedEvidenceCount > 0 ? 'partially_verified' : 'verified',
+      verifiedEvidenceCount: verifiedSourceEvidence.length,
+      rejectedEvidenceCount,
+      affectedPaths: [...affectedPaths],
+    },
+  }
 }
 
 function getAnalyticalFields(result) {
@@ -596,14 +801,15 @@ export function validateAndNormalizeRegulatoryImpact({
     )
   }
 
-  const result = parsedOutput.data
+  const rawResult = parsedOutput.data
 
   if (
     (hasVerifiedPreviousVersion &&
-      result.changeSummary.comparisonMode !== 'verified_change_comparison') ||
+      rawResult.changeSummary.comparisonMode !==
+        'verified_change_comparison') ||
     (!hasVerifiedPreviousVersion &&
-      (result.changeSummary.comparisonMode !== 'new_source_summary' ||
-        result.changeSummary.previousRequirement !== null))
+      (rawResult.changeSummary.comparisonMode !== 'new_source_summary' ||
+        rawResult.changeSummary.previousRequirement !== null))
   ) {
     throw new RegulatoryImpactValidationError(
       'The result asserted a change comparison without a verified previous version.',
@@ -615,6 +821,40 @@ export function validateAndNormalizeRegulatoryImpact({
       },
     )
   }
+
+  assertSourceEvidenceReferences(rawResult)
+
+  if (
+    rawResult.sourceEvidence.length > 0 &&
+    (rawResult.impactAssessment.factors.length < 3 ||
+      rawResult.impactAssessment.factors.length > 6)
+  ) {
+    throw new RegulatoryImpactValidationError(
+      'Preliminary impact analysis must explain its prioritization factors.',
+      {
+        validationCode: 'IMPACT_FACTORS_REQUIRED',
+        validationIssues: [
+          { path: 'impactAssessment.factors', code: 'custom' },
+        ],
+      },
+    )
+  }
+
+  const { result, evidenceGrounding } = sanitizeSourceEvidence(
+    rawResult,
+    officialSourceMaterial,
+  )
+
+  if (evidenceGrounding.rejectedEvidenceCount > 0) {
+    console.warn('Regulatory impact source evidence was excluded.', {
+      validationCode: 'SOURCE_EVIDENCE_NOT_GROUNDED',
+      rejectedEvidenceCount: evidenceGrounding.rejectedEvidenceCount,
+      verifiedEvidenceCount: evidenceGrounding.verifiedEvidenceCount,
+      affectedPaths: evidenceGrounding.affectedPaths,
+      handling: 'deterministic_server_filter',
+    })
+  }
+
   assertGroundedSourceEvidence(
     result.sourceEvidence,
     officialSourceMaterial,
@@ -639,29 +879,17 @@ export function validateAndNormalizeRegulatoryImpact({
     )
   }
 
-  if (
-    result.sourceEvidence.length > 0 &&
-    (result.impactAssessment.factors.length < 3 ||
-      result.impactAssessment.factors.length > 6)
-  ) {
-    throw new RegulatoryImpactValidationError(
-      'Preliminary impact analysis must explain its prioritization factors.',
-      {
-        validationCode: 'IMPACT_FACTORS_REQUIRED',
-        validationIssues: [
-          { path: 'impactAssessment.factors', code: 'custom' },
-        ],
-      },
-    )
-  }
-
   const withResolvedLegalBasis = normalizeLegalBasis(
     result,
     allowedAuthorities,
   )
   const legalAuthorities = withResolvedLegalBasis.legalAuthorities
   const normalizedResult = {
-    sourceEvidence: result.sourceEvidence,
+    sourceEvidence: result.sourceEvidence.map((evidence) => ({
+      ...evidence,
+      verificationStatus: 'verified',
+    })),
+    evidenceGrounding,
     changeSummary: withResolvedLegalBasis.changeSummary,
     impactAssessment: withResolvedLegalBasis.impactAssessment,
     affectedActivities: withResolvedLegalBasis.affectedActivities,

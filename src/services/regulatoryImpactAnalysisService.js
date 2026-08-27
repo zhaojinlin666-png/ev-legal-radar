@@ -6,6 +6,7 @@ import {
   REGULATORY_IMPACT_EVIDENCE_TYPES,
   REGULATORY_IMPACT_LEVELS,
   REGULATORY_IMPACT_SCHEMA_VERSION,
+  REGULATORY_EVIDENCE_GROUNDING_STATUSES,
 } from '../../shared/regulatoryImpactContract.js'
 import { getApiEndpoint } from './apiEndpoint.js'
 
@@ -27,8 +28,17 @@ const impactResultSchema = z
       z.object({
         evidenceId: z.string(),
         quotation: z.string(),
+        verificationStatus: z.literal('verified'),
       }),
     ),
+    evidenceGrounding: z
+      .object({
+        status: z.enum(REGULATORY_EVIDENCE_GROUNDING_STATUSES),
+        verifiedEvidenceCount: z.number().int().min(0),
+        rejectedEvidenceCount: z.number().int().min(0),
+        affectedPaths: z.array(z.string()),
+      })
+      .strict(),
     changeSummary: z.object({
       comparisonMode: z.enum(REGULATORY_CHANGE_COMPARISON_MODES),
       previousRequirement: z.string().nullable(),

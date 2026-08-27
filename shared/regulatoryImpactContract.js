@@ -1,4 +1,4 @@
-export const REGULATORY_IMPACT_SCHEMA_VERSION = '1.1'
+export const REGULATORY_IMPACT_SCHEMA_VERSION = '1.1.1'
 
 export const REGULATORY_IMPACT_LEVELS = Object.freeze([
   'High',
@@ -24,6 +24,12 @@ export const REGULATORY_CHANGE_COMPARISON_MODES = Object.freeze([
 export const REGULATORY_IMPACT_EVIDENCE_TYPES = Object.freeze([
   'FACT',
   'INFERENCE',
+])
+
+export const REGULATORY_EVIDENCE_GROUNDING_STATUSES = Object.freeze([
+  'verified',
+  'partially_verified',
+  'unavailable',
 ])
 
 export const HUMAN_REVIEW_STATUSES = Object.freeze([

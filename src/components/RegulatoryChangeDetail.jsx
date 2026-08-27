@@ -3,6 +3,7 @@ import HumanReviewControls from './HumanReviewControls.jsx'
 import HumanReviewSummary from './HumanReviewSummary.jsx'
 import ImpactFactors from './ImpactFactors.jsx'
 import LegalBasisDisclosure from './LegalBasisDisclosure.jsx'
+import EvidenceGroundingNotice from './EvidenceGroundingNotice.jsx'
 import LegalAuthorityPanel from './LegalAuthorityPanel.jsx'
 import PreliminaryImpactAnalysisPanel from './PreliminaryImpactAnalysisPanel.jsx'
 import RegulatoryStatusBadge from './RegulatoryStatusBadge.jsx'
@@ -55,6 +56,11 @@ function RegulatoryChangeDetail({
   )
   const { hasVerifiedComparison } = changePresentation
   const humanReviewKeys = getRegulatoryImpactReviewKeys(event)
+  const changeEvidenceWasFiltered = Boolean(
+    impactAnalysis?.evidenceGrounding?.affectedPaths.includes(
+      'changeSummary.evidenceIds',
+    ),
+  )
 
   return (
     <article className="change-event-detail" aria-labelledby="change-detail-title">
@@ -128,8 +134,16 @@ function RegulatoryChangeDetail({
           ) : null}
           <div>
             <h3>
-              {hasVerifiedComparison ? 'New Requirement' : 'Source-backed New Requirement'}
-              {hasImpactAnalysis ? <GroundingLabel type="FACT" /> : null}
+              {hasVerifiedComparison
+                ? 'New Requirement'
+                : changeEvidenceWasFiltered
+                  ? 'Preliminary Requirement Summary'
+                  : 'Source-backed New Requirement'}
+              {hasImpactAnalysis ? (
+                <GroundingLabel
+                  type={changeEvidenceWasFiltered ? 'INFERENCE' : 'FACT'}
+                />
+              ) : null}
             </h3>
             {hasImpactAnalysis ? (
               <HumanReviewControls
@@ -333,11 +347,17 @@ function RegulatoryChangeDetail({
                 <GroundingLabel type="FACT" />
                 <h3 id="source-evidence-title">Official-source evidence</h3>
               </div>
+              <EvidenceGroundingNotice
+                grounding={impactAnalysis.evidenceGrounding}
+              />
               {impactAnalysis.sourceEvidence.length > 0 ? (
                 <ul>
                   {impactAnalysis.sourceEvidence.map((evidence) => (
                     <li key={evidence.evidenceId}>
                       <q>{evidence.quotation}</q>
+                      <span className="verified-quotation-label">
+                        {evidence.verificationStatus} quotation
+                      </span>
                     </li>
                   ))}
                 </ul>

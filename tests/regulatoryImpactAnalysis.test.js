@@ -123,11 +123,27 @@ function createModelOutput(overrides = {}) {
 }
 
 function createNormalizedResult(overrides = {}) {
+  return normalizeModelOutput(createModelOutput(overrides))
+}
+
+function normalizeModelOutput(modelOutput) {
   return validateAndNormalizeRegulatoryImpact({
-    modelOutput: createModelOutput(overrides),
+    modelOutput,
     officialSourceMaterial: `${officialSource.title}\n${officialSource.content}`,
     allowedAuthorities: [],
   })
+}
+
+function addUngroundedEvidence(modelOutput, evidenceItems) {
+  const output = structuredClone(modelOutput)
+  output.sourceEvidence.push(...evidenceItems)
+  output.changeSummary.evidenceIds.push(
+    ...evidenceItems.map((item) => item.evidenceId),
+  )
+  output.impactAssessment.evidenceIds.push(
+    ...evidenceItems.map((item) => item.evidenceId),
+  )
+  return output
 }
 
 function withWhyItMatters(modelOutput, whyItMatters) {
@@ -175,6 +191,175 @@ test('structured impact output is validated and missing authority is explicit', 
   )
   assert.equal(result.impactAssessment.factors.length, 3)
   assert.equal(result.impactAssessment.humanReviewRequired, true)
+  assert.deepEqual(result.evidenceGrounding, {
+    status: 'verified',
+    verifiedEvidenceCount: 1,
+    rejectedEvidenceCount: 0,
+    affectedPaths: [],
+  })
+  assert.equal(result.sourceEvidence[0].verificationStatus, 'verified')
+})
+
+test('valid grounded quotations remain available as verified evidence', () => {
+  const result = createNormalizedResult()
+
+  assert.deepEqual(result.sourceEvidence, [
+    {
+      evidenceId: 'source-1',
+      quotation: '相关材料涉及个人信息处理规则。',
+      verificationStatus: 'verified',
+    },
+  ])
+  assert.equal(result.evidenceGrounding.status, 'verified')
+})
+
+test('one ungrounded quotation is excluded without discarding otherwise grounded analysis', () => {
+  const fabricatedQuotation = '这段文字并不存在于抓取到的官方来源中。'
+  const modelOutput = addUngroundedEvidence(createModelOutput(), [
+    { evidenceId: 'source-invalid-1', quotation: fabricatedQuotation },
+  ])
+  modelOutput.suggestedDocuments[0].evidenceIds = ['source-invalid-1']
+  modelOutput.impactAssessment.factors[0].evidenceIds.push('source-invalid-1')
+  const capturedWarnings = []
+  const originalConsoleWarn = console.warn
+  console.warn = (...entries) => capturedWarnings.push(entries)
+
+  try {
+    const result = normalizeModelOutput(modelOutput)
+
+    assert.equal(result.evidenceGrounding.status, 'partially_verified')
+    assert.equal(result.evidenceGrounding.verifiedEvidenceCount, 1)
+    assert.equal(result.evidenceGrounding.rejectedEvidenceCount, 1)
+    assert.equal(result.sourceEvidence.length, 1)
+    assert.equal(result.sourceEvidence[0].quotation, '相关材料涉及个人信息处理规则。')
+    assert.equal(result.suggestedDocuments.length, 0)
+    assert.equal(result.impactAssessment.factors[0].evidenceType, 'INFERENCE')
+    assert.equal(
+      result.changeSummary.evidenceIds.includes('source-invalid-1'),
+      false,
+    )
+  } finally {
+    console.warn = originalConsoleWarn
+  }
+
+  assert.equal(capturedWarnings.length, 1)
+  assert.equal(capturedWarnings[0][1].validationCode, 'SOURCE_EVIDENCE_NOT_GROUNDED')
+  assert.doesNotMatch(JSON.stringify(capturedWarnings), new RegExp(fabricatedQuotation, 'u'))
+})
+
+test('multiple ungrounded quotations and their exclusive findings are removed', () => {
+  const modelOutput = addUngroundedEvidence(createModelOutput(), [
+    { evidenceId: 'source-invalid-1', quotation: '不存在的引文一。' },
+    { evidenceId: 'source-invalid-2', quotation: '不存在的引文二。' },
+  ])
+  modelOutput.affectedActivities[0].evidenceIds = ['source-invalid-1']
+  modelOutput.reviewTasks[0].evidenceIds = ['source-invalid-2']
+
+  const originalConsoleWarn = console.warn
+  console.warn = () => {}
+  try {
+    const result = normalizeModelOutput(modelOutput)
+
+    assert.equal(result.evidenceGrounding.status, 'partially_verified')
+    assert.equal(result.evidenceGrounding.rejectedEvidenceCount, 2)
+    assert.equal(result.affectedActivities.length, 0)
+    assert.equal(result.reviewTasks.length, 0)
+    assert.deepEqual(
+      result.sourceEvidence.map((item) => item.evidenceId),
+      ['source-1'],
+    )
+  } finally {
+    console.warn = originalConsoleWarn
+  }
+})
+
+test('all ungrounded quotations produce a safe unavailable-evidence result', () => {
+  const fabricatedQuotation = '完全未出现在官方来源中的模型引文。'
+  const modelOutput = createModelOutput({
+    sourceEvidence: [
+      { evidenceId: 'source-1', quotation: fabricatedQuotation },
+    ],
+  })
+  const originalConsoleWarn = console.warn
+  console.warn = () => {}
+
+  try {
+    const result = normalizeModelOutput(modelOutput)
+
+    assert.equal(result.evidenceGrounding.status, 'unavailable')
+    assert.equal(result.evidenceGrounding.verifiedEvidenceCount, 0)
+    assert.equal(result.evidenceGrounding.rejectedEvidenceCount, 1)
+    assert.deepEqual(result.sourceEvidence, [])
+    assert.equal(result.impactAssessment.level, 'Further Review Required')
+    assert.equal(result.impactAssessment.confidence, 'Low')
+    assert.deepEqual(result.impactAssessment.factors, [])
+    assert.deepEqual(result.affectedActivities, [])
+    assert.deepEqual(result.suggestedDocuments, [])
+    assert.deepEqual(result.reviewTasks, [])
+    assert.deepEqual(result.legalAuthorities, [])
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(fabricatedQuotation, 'u'))
+  } finally {
+    console.warn = originalConsoleWarn
+  }
+})
+
+test('ungrounded evidence is handled without a second OpenAI request', async () => {
+  let attempt = 0
+  const modelOutput = addUngroundedEvidence(createModelOutput(), [
+    { evidenceId: 'source-invalid-1', quotation: '模型重构的非原文引文。' },
+  ])
+  const openai = {
+    responses: {
+      parse: async () => {
+        attempt += 1
+        return { status: 'completed', output_parsed: modelOutput }
+      },
+    },
+  }
+  const originalConsoleWarn = console.warn
+  console.warn = () => {}
+
+  try {
+    const result = await executeRegulatoryImpactAnalysis({
+      openai,
+      event: createReviewEventFromDetectedItem(detectedItem),
+      officialSource,
+      allowedAuthorities: [],
+    })
+
+    assert.equal(attempt, 1)
+    assert.equal(result.evidenceGrounding.status, 'partially_verified')
+  } finally {
+    console.warn = originalConsoleWarn
+  }
+})
+
+test('no fabricated quotation can reach the production client contract', () => {
+  const fabricatedQuotation = '前端绝不能收到这段未核验引文。'
+  const modelOutput = addUngroundedEvidence(createModelOutput(), [
+    { evidenceId: 'source-invalid-1', quotation: fabricatedQuotation },
+  ])
+  const originalConsoleWarn = console.warn
+  console.warn = () => {}
+
+  try {
+    const normalizedResult = normalizeModelOutput(modelOutput)
+    const apiResponse = createRegulatoryImpactApiResponse(normalizedResult)
+    const clientResult = parseRegulatoryImpactApiPayload(apiResponse)
+
+    assert.doesNotMatch(
+      JSON.stringify(clientResult),
+      new RegExp(fabricatedQuotation, 'u'),
+    )
+    assert.equal(
+      clientResult.sourceEvidence.every(
+        (item) => item.verificationStatus === 'verified',
+      ),
+      true,
+    )
+  } finally {
+    console.warn = originalConsoleWarn
+  }
 })
 
 test('verified legal basis is resolved server-side with official provenance', () => {
