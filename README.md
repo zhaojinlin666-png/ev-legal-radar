@@ -154,23 +154,31 @@ The human reviewer remains responsible for source checking, applicability, factu
 
 ## Demo / Screenshots
 
-The placeholders below follow the end-to-end portfolio demonstration: detection, preliminary analysis, task generation, and document review.
+The screenshots below follow the portfolio workflow from regulatory intelligence through preliminary analysis, governance review, and task generation.
 
 ### Regulatory Update Radar
 
-> **Screenshot placeholder** — On-demand official-source monitoring, source-detected items, and demo review events.
+![EV Legal Radar regulatory intelligence and Radar entry point](docs/screenshots/regulatory-radar.png)
+
+*Regulatory intelligence workspace providing entry into the user-triggered, official-source monitoring workflow.*
 
 ### Preliminary Impact Analysis
 
-> **Screenshot placeholder** — FACT/INFERENCE labels, explainable impact factors, grounded official-source quotations, verified legal authority, and human-review controls.
+![Structured preliminary AI impact analysis](docs/screenshots/impact-analysis.png)
+
+*Structured preliminary AI impact analysis showing workflow status, review priority, affected-activity and suggested-document counts, and generated task volume.*
+
+### Human Review / AI Governance Controls
+
+![FACT and INFERENCE separation with human review controls](docs/screenshots/human-review.png)
+
+*AI governance controls distinguish source-backed FACT from preliminary INFERENCE and keep each impact factor subject to explicit human review.*
 
 ### Generated Review Tasks
 
-> **Screenshot placeholder** — Task status, review questions, suggested documents, provenance, and the Review Document workflow action.
+![Generated legal review tasks and document-review handoff](docs/screenshots/review-tasks.png)
 
-### AI-assisted Document Review
-
-> **Screenshot placeholder** — Exact document evidence, verified legal authority, preliminary analysis, suggested revision, confidence, and Human Review Required.
+*Generated legal review tasks translate a preliminary impact assessment into prioritized work items and provide a workflow handoff to Document Review.*
 
 ## Key Features
 
