@@ -1,262 +1,348 @@
-# EV Legal Radar
+# EV Legal Radar V1.1
 
-**AI-assisted Regulatory Intelligence & Preliminary Legal Review Prototype**
+**AI-assisted regulatory intelligence and preliminary legal-review workflow prototype**
 
-EV Legal Radar is an educational portfolio prototype that connects regulatory research with a preliminary compliance-review workflow. It helps a legal intern or junior legal professional move from a demo regulatory event to an impact assessment, review task, document review, grounded evidence, verified legal authority, and an AI-assisted preliminary finding. It is not an autonomous legal decision-making system and does not provide legal advice.
+EV Legal Radar is a LegalTech prototype exploring how AI can support regulatory monitoring and preliminary legal review while preserving source traceability, human oversight, and clear boundaries between verified legal information and model-generated analysis.
 
-## Why This Project
+The system does **not** provide legal advice, certify compliance, or make autonomous legal conclusions. Its AI outputs are preliminary research artifacts that remain subject to human legal verification.
 
-Regulatory updates are often tracked separately from the internal work required to understand their practical effect. A legal professional may identify a new rule, but still needs to determine which activities could be affected, what facts remain unknown, which documents should be reviewed, and which conclusions require a qualified lawyer.
+> **Design principle:** AI assists with triage and research; humans remain responsible for legal judgment.
 
-EV Legal Radar demonstrates an end-to-end workflow:
+| **Source Grounding** | **FACT / INFERENCE Separation** | **Verified Legal Authority** | **Human Review** |
+|---|---|---|---|
+| Exact source and document quotations | Source facts remain distinct from preliminary analysis | Citations come from a controlled local knowledge base | AI output can be accepted, edited, rejected, or reset |
 
-`Regulatory Update → Impact Assessment → Review Task → Document Review → Evidence Extraction → Verified Legal Authority → AI-assisted Preliminary Analysis → Human Review`
+## Project Overview
 
-This pattern is relevant to in-house legal teams, privacy and data-compliance work, and AI-enabled legal operations because it treats AI output as one controlled step inside a broader legal workflow—not as a substitute for legal judgment.
+The project demonstrates two connected workflows:
+
+1. **Regulatory intelligence** — retrieve official-source metadata on demand, create an unreviewed regulatory event, analyze the retrieved official source, map potential business impact, and generate review tasks.
+2. **Document review** — carry a selected task into a TXT document review, run either local rule-based screening or AI-assisted preliminary review, and separate document evidence from verified legal authority and AI analysis.
+
+V1.1 focuses on legal-governance controls around the regulatory-impact stage. The application distinguishes source facts from analytical inferences, validates official-source quotations, restricts legal citations to a local verified knowledge base, and exposes human review controls before generated analysis is relied upon in the workflow.
+
+## Why I Built This
+
+I developed EV Legal Radar from the perspective of a law student interested in AI compliance and technology-sector legal work. The project began with one question:
+
+> **How can generative AI assist legal teams without turning uncertain model output into seemingly authoritative legal conclusions?**
+
+That question shaped the product and engineering choices throughout the prototype. Instead of optimizing for automated legal judgment, EV Legal Radar focuses on source grounding, visible uncertainty, controlled legal authority, and human review. Its purpose is to help structure research and generate review work rather than a final compliance verdict.
+
+## Problem Statement
+
+Regulatory monitoring and legal review are often disconnected. Finding a publication is only the beginning: a reviewer still needs to determine what the source says, which activities may be affected, what documents and facts require examination, and which questions need qualified legal judgment.
+
+Generic AI output can make that process harder to audit when it blends source text, legal authority, assumptions, and conclusions. EV Legal Radar tests a more controlled design:
+
+- retrieve regulatory material from a defined official source;
+- preserve the distinction between detected metadata and reviewed legal content;
+- require AI statements to reference grounded source evidence;
+- label factual summaries separately from preliminary inferences;
+- permit only verified, allowlisted legal authorities;
+- generate review work rather than a final compliance verdict; and
+- keep a human reviewer responsible for accepting, editing, or rejecting the result.
 
 ## Core Workflow
 
-1. **Regulatory Update Radar** — Displays locally defined demo change events and supports on-demand retrieval of listing metadata from one official China National Internet Information Office source. Retrieved items are labelled `Source detected`; retrieval occurs only when the user clicks the fetch action.
-2. **Regulatory Impact Assessment** — Shows a preliminary impact level, potentially affected activities, suggested documents, and generated review tasks. Impact is a workflow-priority indicator, not a legal conclusion.
-3. **Review Task generation and context** — Existing regulatory-review items are converted into local review tasks with questions, suggested documents, status, risk/priority, and a reason for review. Task status and checked questions use React state and are not persisted.
-4. **Document Review linkage** — A task can open the Document Review module with workflow metadata such as the related regulation, task, topic, suggested document, and impact level. This metadata is not treated as document evidence or legal authority.
-5. **Local TXT upload** — The browser reads and previews a selected `.txt` file with `FileReader`. File selection, preview, and rule-based analysis remain local to the browser.
-6. **Rule-based preliminary review** — Eight locally defined rules use keyword and text-pattern matching to identify potentially relevant passages. Results are limited to `Found`, `Potential Gap`, or `Further Review Required`.
-7. **AI-assisted review through the local backend** — When the user explicitly requests AI review, the uploaded text, canonical review rules, and verified source metadata are sent through the local Express backend to the OpenAI Responses API. The server keeps the API key out of frontend code.
-8. **Document evidence grounding** — AI evidence must be one contiguous verbatim passage from the uploaded document. Only harmless whitespace and line-ending differences are normalized. Paraphrased or spliced evidence is rejected.
-9. **Verified legal authority mapping** — Legal authority is resolved from a local verified knowledge base and an explicit rule-to-authority allowlist. The model returns authority IDs, while the server reconstructs the citation metadata.
-10. **Human review requirement** — AI findings include confidence, recommendations, next checks, and `Human Review Required`. They remain preliminary and require professional review against complete facts.
+```text
+Official Regulatory Sources
+        ↓
+Regulatory Monitoring
+        ↓
+Preliminary AI Impact Analysis
+        ↓
+Affected Business Activity Mapping
+        ↓
+Review Task Generation
+        ↓
+Human Review
+```
 
-## AI-assisted Review Design
+### 1. Official Regulatory Sources
 
-Each AI-assisted finding separates five different concepts:
+The monitoring MVP uses one configured public source: the China National Internet Information Office (`中国网信网`) regulatory listing. Source URLs are restricted to the configured CAC hostnames. Existing portfolio records outside this source flow are clearly presented as demo data unless the repository contains verified source metadata.
 
-### Document Evidence
+### 2. Regulatory Monitoring
 
-What the uploaded document actually says. Evidence must be copied from the document rather than paraphrased, translated, or assembled from separate passages. If no exact supporting passage exists, the result uses an explicit no-evidence state.
+Retrieval is user-triggered rather than continuous. The server fetches the configured listing, parses publication metadata, applies a visible keyword filter, and returns matching items as **Source detected**. Detection does not itself establish legal relevance, verify a legal proposition, or assign an impact level.
 
-### Legal Authority
+The user can convert a detected item into an **Unreviewed** regulatory event. At this boundary, the application intentionally creates no impact conclusion, affected activity, suggested document, or review task.
 
-Only provisions present in the project's verified local legal knowledge base and mapped to the specific review rule may appear. Legal authority cards show the law, article, issuing authority, official URL, verification status, and a short stored requirement summary. If no sufficiently verified mapping exists, the result uses `LEGAL_SOURCE_NOT_VERIFIED`.
+### 3. Preliminary AI Impact Analysis
 
-### AI Analysis
+For a source-detected event, the server retrieves the official detail page and sends the controlled event metadata, official-source material, and eligible verified authority metadata to the OpenAI Responses API. Structured output is used for:
 
-The model provides a cautious preliminary comparison between the grounded document evidence, the review rule, and the supplied authority. It is instructed not to invent company facts, legal provisions, or definitive legal conclusions.
+- a new-source summary;
+- preliminary interpretation;
+- an explainable impact-priority assessment;
+- official-source evidence;
+- potentially affected activities;
+- suggested documents; and
+- proposed review tasks.
 
-### Recommendation / Next Check
+When no verified previous version is supplied, the application summarizes the new source and does not claim that a particular legal requirement has changed.
 
-The result can suggest a generic drafting improvement or a factual/documentary follow-up. These are review aids—for example, checking a data inventory or comparing a notice with actual product behavior—not findings about a real company.
+### 4. Affected Business Activity Mapping
 
-### Confidence and Human Review Required
+Potentially affected activities are presented as cautious research inferences, each tied to retained official-source evidence and accompanied by any verified legal basis available to that item. They are not assertions about a specific company's actual operations.
 
-Confidence describes confidence in the preliminary text analysis, not a probability that conduct is legally compliant. AI-assisted results are marked as requiring human review. Absence of evidence in one uploaded document does **not** automatically establish legal non-compliance.
+### 5. Review Task Generation
 
-## Legal Grounding and Guardrails
+Review tasks are created only after the server returns a valid impact-analysis result. Each generated task includes an objective, legal topic, suggested document, priority, source-evidence provenance, and verified legal basis where available. Tasks can be expanded, moved between local statuses, and linked to Document Review.
 
-The implemented guardrails include:
+### 6. Human Review
 
-- The server replaces frontend rule objects with rules from its canonical local registry.
-- Legal citations must match the provision IDs allowlisted for the specific review rule.
-- Only knowledge-base records with `verificationStatus: "verified"` can be resolved as legal authority.
-- Regulation-level metadata does not authorize the model to cite the same article for every issue.
-- AI document evidence must be an exact contiguous quotation from the uploaded text, subject only to conservative layout normalization.
-- The OpenAI response uses Structured Outputs generated from a Zod schema.
-- The server validates schema shape, rule count and identity, risk level, citation IDs, evidence grounding, and prohibited definitive conclusions.
-- Invalid or unsupported output is rejected. Selected validation failures can trigger one validation-guided retry before the request fails.
-- Safe diagnostics record structural information rather than the API key or full uploaded document.
-- Legal authority and document evidence are displayed in separate UI sections.
-- AI analysis is expressly preliminary and remains subject to human legal review.
+AI-generated interpretations, impact factors, activity mappings, suggested documents, and tasks expose browser-local **Accept**, **Edit**, **Reject**, and **Reset** controls. Acceptance means only that a human has reviewed the item; it does not make the item legally verified. Review state is not persisted.
 
-These controls reduce specific failure modes, but they do not guarantee legal accuracy, information security, or regulatory compliance.
+## Legal AI Governance Design
 
-## Current Verified Legal Knowledge Base
+### Source grounding
 
-The local registry currently contains the following 14 provision records. The descriptions below summarize the fields actually stored in [`src/data/legalKnowledgeBase.js`](src/data/legalKnowledgeBase.js); the project does not store complete statutory texts.
+The project implements two distinct grounding boundaries:
 
-| Statute / regulation | Article | Jurisdiction | Stored coverage summary |
-|---|---:|---|---|
-| Personal Information Protection Law of the People's Republic of China | 6 | China | Processing purpose and data minimization. |
-| Personal Information Protection Law of the People's Republic of China | 7 | China | Transparency and disclosure of processing purpose, method, and scope. |
-| Personal Information Protection Law of the People's Republic of China | 13 | China | Statutory lawful basis for personal-information processing. |
-| Personal Information Protection Law of the People's Republic of China | 14 | China | Informed consent and separate or written consent where required. |
-| 汽车数据安全管理若干规定（试行） | 3 | China | Automotive-data definitions and classification, including sensitive personal information, important data, and vehicle trajectory data. |
-| 汽车数据安全管理若干规定（试行） | 4 | China | Purpose requirements for automotive-data processing. |
-| 汽车数据安全管理若干规定（试行） | 5 | China | Data-security obligations; the local summary is intentionally limited. |
-| 汽车数据安全管理若干规定（试行） | 6 | China | In-vehicle processing, default non-collection, appropriate precision, and anonymization/de-identification principles. |
-| 汽车数据安全管理若干规定（试行） | 7 | China | Disclosure of data categories, collection circumstances, purpose, method, storage location, retention, user rights, and contact information. |
-| 汽车数据安全管理若干规定（试行） | 8 | China | Consent or another legally permitted basis for processing personal information. |
-| 汽车数据安全管理若干规定（试行） | 9 | China | Heightened review of sensitive personal information, separate consent, vehicle trajectory information, and deletion-related requirements. |
-| 汽车数据安全管理若干规定（试行） | 10 | China | Important-data risk assessment and reporting of storage location and retention period. |
-| 汽车数据安全管理若干规定（试行） | 11 | China | Important-data localization and cross-border security assessment; it is not mapped automatically to ordinary personal information. |
-| 汽车数据安全管理若干规定（试行） | 17 | China | Complaint and reporting channels and handling of user complaints. |
+- **Regulatory-impact evidence** must be an exact, contiguous quotation from the retrieved official-source material.
+- **Document-review evidence** must be an exact, contiguous quotation from the uploaded document.
 
-## Technology
+Validation permits only harmless formatting normalization such as line-ending, line-wrap, and repeated-whitespace differences. It does not use semantic similarity to approve paraphrases or passages assembled from separate locations.
 
-- **React 19** — Frontend workflow, local task state, document interaction, and results UI.
-- **Vite 8** — Frontend development server, production build, and `/api` development proxy.
-- **Node.js and Express 5** — Local backend endpoints at `POST /api/ai-review` and `GET /api/regulatory-updates`.
-- **OpenAI Node SDK 7** — Calls the OpenAI Responses API from the backend only.
-- **OpenAI Structured Outputs** — `responses.parse()` and `zodTextFormat()` constrain model output.
-- **Zod 4** — Validates model output, normalized results, and the API response contract.
-- **Undici** — Supplies an explicit `ProxyAgent` when standard HTTP(S) proxy environment variables are configured.
-- **dotenv** — Loads local server environment variables.
-- **Node test runner** — Executes mapping, citation, evidence-grounding, retry, and workflow tests.
-- **Oxlint** — Static linting.
-- **Concurrently** — Starts the frontend and backend together for local development.
+For regulatory impact analysis, ungrounded quotations are never displayed as verified evidence. A single invalid quotation is excluded deterministically; dependent references are removed, and affected `FACT` factors are downgraded to `INFERENCE` when grounded support remains. If no usable core evidence remains, the server returns a safe `Further Review Required` state with no affected activities, suggested documents, or generated tasks.
 
-The browser handles workflow interaction and local TXT reading. The Express server protects the API key, supplies canonical rules and verified authority metadata, calls OpenAI, and validates the result before returning it to React.
+### FACT vs INFERENCE distinction
 
-## Architecture
+The regulatory-impact UI marks grounded source summaries and quotations as **FACT** and analytical interpretation, possible business effects, suggested review materials, and review tasks as **INFERENCE**. An impact level is expressly a review-priority signal—not a finding that conduct is lawful or unlawful.
+
+### Legal-basis verification
+
+Legal authority is resolved server-side from a local provision-level knowledge base and explicit rule/issue mappings. Only records marked `verificationStatus: "verified"` may be returned as authority. The model supplies allowlisted provision IDs; the server reconstructs the citation and provenance metadata.
+
+The current local registry contains 14 provision summaries from two PRC instruments:
+
+- Personal Information Protection Law of the People's Republic of China — Articles 6, 7, 13, and 14.
+- 汽车数据安全管理若干规定（试行） — Articles 3, 4, 5, 6, 7, 8, 9, 10, 11, and 17.
+
+These are curated provision summaries and source metadata, not a complete statutory corpus. If an issue lacks sufficiently specific verified authority, the application uses `LEGAL_SOURCE_NOT_VERIFIED` rather than forcing or inventing a citation.
+
+### Structured-output validation
+
+Both AI workflows use the OpenAI Responses API with `responses.parse()` and `zodTextFormat()`. Server validation checks more than JSON shape, including:
+
+- required fields, enums, counts, and object strictness;
+- source-event identity and allowed official host;
+- canonical review-rule identity;
+- evidence IDs and exact source/document grounding;
+- verified and issue-appropriate legal-authority IDs;
+- FACT/INFERENCE evidence relationships;
+- prior-version comparison boundaries; and
+- prohibited definitive compliance conclusions.
+
+A machine-readable response that fails these controls is not silently presented as valid analysis.
+
+### Human-in-the-loop review
+
+AI findings are marked as requiring human review. A reviewer can accept, edit, reject, or reset individual regulatory-impact items and see an aggregate review summary. Original AI text remains visible when an item is rejected, supporting a basic audit-oriented presentation within the current browser session.
+
+The human reviewer remains responsible for source checking, applicability, factual investigation, interpretation, materiality, and any final legal conclusion.
+
+### Failure and degradation handling
+
+- Missing API configuration, authentication errors, rate limits, model availability issues, network/provider failures, timeouts, and validation failures return controlled client messages without exposing secrets or stack traces.
+- Unsupported legal authority and unverified prior-version comparisons can trigger one bounded validation-guided retry.
+- Prohibited definitive conclusions receive one server-side repair attempt limited to the offending fields, followed by the same full validation pipeline.
+- Ungrounded regulatory-source quotations are handled deterministically instead of rerunning the entire analysis, reducing serverless timeout risk without accepting fabricated evidence.
+- If repaired or retried output still fails, the analysis is rejected and no impact results or tasks are created.
+
+## Demo / Screenshots
+
+The placeholders below follow the end-to-end portfolio demonstration: detection, preliminary analysis, task generation, and document review.
+
+### Regulatory Update Radar
+
+> **Screenshot placeholder** — On-demand official-source monitoring, source-detected items, and demo review events.
+
+### Preliminary Impact Analysis
+
+> **Screenshot placeholder** — FACT/INFERENCE labels, explainable impact factors, grounded official-source quotations, verified legal authority, and human-review controls.
+
+### Generated Review Tasks
+
+> **Screenshot placeholder** — Task status, review questions, suggested documents, provenance, and the Review Document workflow action.
+
+### AI-assisted Document Review
+
+> **Screenshot placeholder** — Exact document evidence, verified legal authority, preliminary analysis, suggested revision, confidence, and Human Review Required.
+
+## Key Features
+
+### Regulatory Update Radar
+
+- On-demand retrieval from one configured CAC regulatory listing.
+- Transparent relevance-keyword matching and source metadata display.
+- Deterministic URL-based identifiers and browser-session deduplication.
+- Clear separation between `Source detected`, `Unreviewed`, demo, analysis, and verification states.
+- Filterable demo and source-detected review-event feed.
+
+### Preliminary Regulatory Impact Analysis
+
+- Server-side retrieval of the selected official source page.
+- OpenAI Structured Outputs constrained by a strict Zod schema.
+- New-source summary without fabricating an earlier legal position.
+- Explainable priority factors using `High`, `Medium`, `Low`, or `Further Review Required`.
+- Separate official-source evidence, preliminary interpretation, affected activities, suggested documents, and review tasks.
+- Evidence-grounding status shown as verified, partially verified, or unavailable.
+
+### Review Tasks and Workflow Context
+
+- Practical review tasks generated from validated impact analysis or existing demo review items.
+- Local task statuses: `Not Started`, `In Review`, and `Completed`.
+- Expandable review questions and suggested-document lists.
+- **Review Document** action that carries regulation, event, task, topic, suggested document, and priority metadata into Document Review.
+- Workflow context is navigation metadata only; it cannot become document evidence or legal authority.
+
+### Document Review
+
+- Preset demo review plus browser-local `.txt` upload and preview.
+- File metadata and complete text preview using `FileReader`.
+- Eight rule-based review items focused on notice-related issues in the current automotive-data scenario.
+- Local keyword/text-pattern review and optional AI-assisted review.
+- Three non-conclusive result states: `Found`, `Potential Gap`, and `Further Review Required`.
+- Separate presentation of exact document evidence, verified legal authority, preliminary analysis, drafting suggestions, next steps, confidence, and human-review requirement.
+
+### Local and Serverless Operation
+
+- Express development server with Vite `/api` proxy support.
+- Equivalent production endpoints through thin Netlify Function adapters.
+- Shared HTTP handlers and service logic across local and Netlify environments.
+- API keys and optional model configuration remain server-side.
+
+## System Architecture
 
 ```mermaid
-flowchart TD
-    U["User / Human legal reviewer"] --> FE["React frontend"]
-    FE --> RADAR["Radar: demo events + on-demand official-source metadata"]
-    RADAR --> IMPACT["Impact → Review Task"]
-    IMPACT --> DOC["Document Review"]
-    DOC --> LOCAL["Browser FileReader + local rule-based review"]
-    DOC -->|"User requests AI review"| API["Local Express POST /api/ai-review"]
-    API --> RULES["Canonical review rules + verified legal knowledge base"]
-    RULES --> OAI["OpenAI Responses API + Structured Outputs"]
-    OAI --> VALIDATE["Server-side schema, citation, evidence, and conclusion validation"]
-    VALIDATE --> RESULT["Structured preliminary review result"]
-    RESULT --> FE
-    FE --> U
+flowchart LR
+    Reviewer["Human legal reviewer"] --> UI["React / Vite UI"]
+
+    UI -->|"On-demand fetch"| UpdatesAPI["Regulatory Updates API"]
+    UpdatesAPI --> CAC["Configured CAC official source"]
+    CAC --> Detected["Source-detected metadata"]
+    Detected --> Event["Unreviewed regulatory event"]
+
+    Event -->|"Explicit analysis request"| ImpactAPI["Regulatory Impact API"]
+    ImpactAPI --> SourceFetch["Official detail-page retrieval"]
+    ImpactAPI --> ImpactAI["OpenAI structured impact analysis"]
+    KB["Verified local legal knowledge base"] --> ImpactAPI
+    SourceFetch --> ImpactAI
+    ImpactAI --> ImpactValidation["Schema + source grounding + citation + conclusion validation"]
+    ImpactValidation --> Impact["Preliminary impact + activities + review tasks"]
+    Impact --> Reviewer
+
+    Impact --> Task["Selected review task"]
+    Task --> DocUI["Document Review context"]
+    DocUI --> FileReader["Browser-local TXT reading"]
+    FileReader --> Rules["Local rule-based review"]
+    FileReader -->|"Explicit AI request"| ReviewAPI["AI Document Review API"]
+    KB --> ReviewAPI
+    ReviewAPI --> ReviewAI["OpenAI structured document review"]
+    ReviewAI --> ReviewValidation["Schema + exact document evidence + authority validation"]
+    ReviewValidation --> Finding["Preliminary findings for human review"]
+    Finding --> Reviewer
 ```
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the legal and technical trust boundaries.
+### Runtime boundaries
 
-## Project Structure
+| Layer | Responsibility |
+|---|---|
+| React frontend | Navigation, demo data, local task/review state, TXT reading, rule-based review, and result presentation. |
+| Shared contracts | Schema versions, supported statuses, evidence types, and workflow constants. |
+| Express server | Local development API using the same shared request handlers as production. |
+| Netlify Functions | Thin production adapters for monitoring, impact analysis, and document review. |
+| Server services | Official-source retrieval, OpenAI calls, structured parsing, validation, legal-authority resolution, and safe error mapping. |
+| Local legal knowledge base | Verified provision metadata and controlled issue-to-authority mappings. |
+| OpenAI | Generates constrained preliminary analysis only after an explicit user action. |
 
-```text
-ev-legal-radar/
-├── src/
-│   ├── App.jsx                         # Top-level navigation and local workflow state
-│   ├── components/                     # Radar, task, document-review, and result UI
-│   ├── data/
-│   │   ├── regulatoryUpdates.js        # Existing regulatory/demo records
-│   │   ├── regulatoryChangeEvents.js   # Demo impact events and generated review tasks
-│   │   ├── reviewRules.js              # Eight document-review rules
-│   │   ├── legalKnowledgeBase.js       # Verified local provision registry
-│   │   └── ruleLegalAuthorityMap.js    # Explicit and conditional rule mappings
-│   ├── models/reviewResult.js           # Frontend result contract checks
-│   ├── services/aiReviewService.js      # Frontend /api client and response parsing
-│   ├── services/regulatoryMonitoringService.js # Frontend monitoring API client
-│   └── utils/
-│       ├── reviewDocument.js            # Browser rule-based review
-│       ├── regulatoryMonitoring.js      # Detected-item deduplication and review conversion
-│       └── reviewWorkflow.js            # Task-to-document workflow metadata
-├── server/
-│   ├── index.js                         # Express endpoint and canonical-input checks
-│   ├── data/regulatoryMonitoringConfig.js # Official source and keyword configuration
-│   └── services/
-│       ├── aiReviewService.js           # OpenAI request, proxy transport, and retry
-│       ├── aiReviewValidation.js        # Zod, evidence, authority, and result validation
-│       └── regulatoryMonitoringService.js # Official listing fetch, parse, and filter
-├── shared/aiReviewContract.js           # Shared enums and API schema version
-├── tests/                               # Node tests for grounding, mapping, and workflow
-├── docs/
-│   ├── DEMO_GUIDE.md
-│   └── ARCHITECTURE.md
-├── vite.config.js                       # React plugin and /api proxy
-└── .env.example                         # Non-secret local configuration template
-```
+### API endpoints
+
+| Capability | Local development | Netlify production |
+|---|---|---|
+| AI-assisted document review | `POST /api/ai-review` | `POST /.netlify/functions/ai-review` |
+| Regulatory monitoring | `GET /api/regulatory-updates` | `GET /.netlify/functions/regulatory-updates` |
+| Preliminary impact analysis | `POST /api/regulatory-impact-analysis` | `POST /.netlify/functions/regulatory-impact-analysis` |
+
+The frontend selects the appropriate endpoint by environment. No OpenAI secret is included in a `VITE_*` variable or client request.
+
+## Tech Stack
+
+| Technology | Use in this project |
+|---|---|
+| React 19 | Workflow UI and browser-local state. |
+| Vite 8 | Development server, API proxy, and production build. |
+| Node.js + Express 5 | Local backend and reusable HTTP service boundary. |
+| Netlify Functions | Production serverless API adapters. |
+| OpenAI Node SDK 7 | Server-side Responses API and Structured Outputs. |
+| Zod 4 | Model schemas, normalized result contracts, and response validation. |
+| Undici | Optional environment-driven proxy transport for local OpenAI access. |
+| Node test runner | Governance, grounding, mapping, retry, workflow, and deployment tests. |
+| Oxlint | Static lint checks. |
 
 ## Running Locally
 
-### 1. Install dependencies
-
 ```bash
 npm install
-```
-
-### 2. Create a local environment file
-
-```bash
 cp .env.example .env
+npm run dev:all
 ```
 
-Add your own API key to the local `.env` file:
+Configure your own server-side values in the ignored local `.env` file:
 
 ```dotenv
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5.4-mini
 ```
 
-Do not commit the completed `.env`. The repository's `.gitignore` excludes `.env`, `.env.local`, and `.env.*` while allowing `.env.example`.
+- Frontend: Vite's default local URL, normally `http://localhost:5173`
+- Backend: `http://localhost:3001`
+- `npm run dev` or `npm run dev:client`: frontend only
+- `npm run dev:server`: backend only
 
-An API key is required only for AI-assisted review. The Radar, demo view, TXT preview, and rule-based review can run without it.
+An API key is required only for the two AI-assisted analysis actions. Demo views, TXT preview, and local rule-based document review remain available without it. AI-assisted analysis sends the relevant source or uploaded text to OpenAI after the user explicitly starts the request.
 
-### 3. Start frontend and backend together
-
-```bash
-npm run dev:all
-```
-
-- Frontend: `http://localhost:5173` by Vite's default local configuration
-- Backend: `http://localhost:3001` by default
-- Development API proxy: `/api` → `http://localhost:3001`
-
-The backend port can be overridden with `PORT`. If your local network requires an outbound proxy, the OpenAI client reads standard `HTTPS_PROXY`, `HTTP_PROXY`, `https_proxy`, or `http_proxy` environment variables; no proxy address is hardcoded.
-
-Individual commands are also available:
+### Quality checks
 
 ```bash
-npm run dev          # frontend
-npm run dev:server   # backend
 npm test
 npm run lint
 npm run build
 ```
 
-If `OPENAI_API_KEY` is absent, `/api/ai-review` returns an explicit `503` not-configured response.
+Additional architecture and interview-demo notes are available in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md).
 
-## Demo Walkthrough
+## Current Limitations
 
-1. Open **Regulatory Update Radar**. Optionally click **获取最新监管动态** to retrieve relevant metadata from the configured official CAC listing. Retrieved cards remain `Source detected` until a user creates an `Unreviewed` review event.
-2. For the established workflow, select the China automotive-data **Demo change event**. To demonstrate ingestion boundaries, select **Start Legal Review** on a detected item and confirm that its new review event contains no fabricated impact, obligations, or tasks.
-3. Review the preliminary impact assessment, affected activities, and suggested documents.
-4. Open the task that suggests reviewing `用户隐私政策`.
-5. Click **Review Document**; the Document Review page receives the regulation, task, topic, document type, and priority as workflow metadata.
-6. Use the preset **Demo Review** for a static walkthrough, or stay in **Upload Your Document** and select a local `.txt` file.
-7. Choose **Rule-based Review** for local keyword matching or **AI-assisted Review** for the backend workflow.
-8. Click **Run AI-assisted Review**. This action sends the document text through the local backend to OpenAI.
-9. Inspect each exact document-evidence passage.
-10. Inspect the separate verified Legal Authority cards or `LEGAL_SOURCE_NOT_VERIFIED` state.
-11. Review the preliminary analysis, risk explanation, suggested revision, next check, confidence, and human-review status.
-12. Return to the originating review task using the back action.
-
-For a 3–5 minute interview script, see [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md).
-
-## Limitations
-
-- This is an educational prototype, not a production legal or compliance system.
-- Regulatory monitoring is an on-demand metadata fetch from one configured CAC listing page. It does not poll, run on a schedule, cover other jurisdictions, or provide a complete feed of relevant law.
-- Source detection uses title-keyword matching only. It does not download full legal text, classify legal effect, verify a provision, or generate impact analysis.
-- Detected-item de-duplication is held in frontend React state and resets when the browser application reloads; it is independent of backend restarts.
-- The verified local legal knowledge base is limited to 14 provision records from two Chinese legal instruments.
-- The application does not contain complete statutory texts or a general-purpose legal research database.
-- The document-review checklist contains eight rules focused on notice-related issues in the current automotive-data scenario.
-- Local upload supports plain-text `.txt` files only; PDF and DOCX parsing are not implemented.
-- Rule-based review relies on simple keywords and text patterns.
-- AI-assisted review sends document text to OpenAI only after the user requests it; it is not an offline/local model.
-- Tasks, checked questions, uploaded documents, and review results are not persisted to a database.
-- Demo Review results are preset demonstration content and are separate from live AI-assisted analysis.
-- The system does not determine whether a real company, activity, or document is legally compliant.
-- All substantive interpretations and conclusions require human legal review.
+- This is a portfolio and workflow prototype, not a production legal/compliance platform.
+- Monitoring is user-triggered and limited to the first page of one configured CAC listing; it is not continuous, scheduled, or multi-jurisdictional monitoring.
+- Keyword matching identifies potentially relevant titles but does not determine legal relevance or impact.
+- Browser-side deduplication, task progress, human-review records, uploaded documents, and results are held in memory and reset on reload.
+- The dashboard counts and several regulatory update/change records are demonstration data, not a live measure of current regulatory coverage.
+- The system does not assert a before/after legal change unless a verified previous version is supplied. The current live source-detected flow uses a new-source summary.
+- The verified knowledge base contains only 14 provision summaries from two PRC legal instruments; it is not a complete source of law.
+- Document review is limited to `.txt` files and eight notice-related prototype rules. PDF and DOCX parsing are not implemented.
+- Rule-based review is keyword/text-pattern screening and cannot reliably interpret context.
+- AI-assisted analysis depends on an external model and may still be incomplete or incorrect despite the implemented controls.
+- AI document review sends uploaded text to OpenAI only after explicit user action; the prototype is not suitable for confidential production documents without additional privacy and security assessment.
+- The application has no authentication, role-based access, database, durable audit log, document encryption layer, or formal matter-management controls.
+- Netlify monitoring deduplication is not durable server-side; no database is used.
+- No output determines whether a real organization, document, system, or activity is legally compliant.
 
 ## Future Development
 
-The following are possible future directions, not current features:
-
-- Expand and maintain the verified provision-level legal knowledge base.
-- Expand controlled ingestion to additional verified official sources and add persistent review/audit state.
-- Support PDF and DOCX document review.
-- Add regulatory version comparison and change detection.
-- Develop more granular obligation and fact-pattern mapping.
-- Add an auditable review history, reviewer notes, and approval workflow.
-- Explore retrieval-based legal research with source-level provenance.
+- Expand the verified legal knowledge base and maintain provision-level source provenance.
+- Add controlled monitoring for additional official sources and jurisdictions.
+- Introduce persistent source history, deduplication, review records, and an auditable approval workflow.
+- Support verified regulatory version comparison and source-level change detection.
+- Add PDF and DOCX ingestion with secure document-handling controls.
+- Develop reviewer annotations, matter ownership, permissions, and exportable review records.
+- Build evaluation datasets for citation accuracy, evidence grounding, cautious-language compliance, and task usefulness.
+- Add production security controls, retention policies, authentication, and privacy review before handling confidential materials.
 
 ## Disclaimer
 
-This project is an educational and portfolio prototype. It does not provide legal advice and should not be used as a substitute for professional legal review.
+EV Legal Radar is an educational and portfolio LegalTech prototype. It is intended only to demonstrate AI-assisted regulatory research, workflow design, and preliminary legal-review controls. It does not provide legal advice, determine legal rights or obligations, certify legal compliance, or replace review by a qualified legal professional. AI-generated content may be incomplete or inaccurate and must be checked against official sources, complete business facts, and applicable law by a human legal reviewer.
